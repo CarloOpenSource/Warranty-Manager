@@ -12,6 +12,10 @@ class TutorialHelper {
   // ── Einheitliche Overlay-Animation für alle Tutorial-Schritte ──
   static const Duration _fokusDauer = Duration(milliseconds: 600);
   static const Duration _loesDauer = Duration(milliseconds: 600);
+
+  // Expiry-Tutorial: jeder Schritt ist ein eigenes Overlay und blendet neu ein.
+  // Hier bewusst kürzer, damit die Schritte zügig aufeinander folgen.
+  static const Duration _expiryFokusDauer = Duration(milliseconds: 600);
   
   static bool isTutorialActive = false;
   static bool forcePopFlag = false; 
@@ -53,7 +57,7 @@ class TutorialHelper {
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
     ]);
-    await Future.delayed(const Duration(milliseconds: 100)); 
+    await Future.delayed(const Duration(milliseconds: 50)); 
   }
 
   static Future<void> _freigebenOrientierung() async {
@@ -914,6 +918,11 @@ class TutorialHelper {
     await _sperreQuerformat();
     if (!context.mounted) return;
 
+    // Erst starten, wenn die Seite fertig eingeblendet ist. Sonst sitzt der
+    // Fokus wegen der Slide-Animation an der falschen Stelle.
+    await _warteAufRouteAnimation(context);
+    if (!context.mounted || !isTutorialActive) return;
+
     final lang = Provider.of<SettingsProvider>(context, listen: false).languageCode;
 
     final steps = <_ExpiryTutorialStep>[
@@ -957,10 +966,10 @@ class TutorialHelper {
       if (!context.mounted || !isTutorialActive) return;
 
       // Tab wechseln, falls der Schritt einen anderen Tab verlangt
+      // Kein festes Warten: die Tab-Leiste ist immer sichtbar, der Wechsel
+      // läuft parallel zur Einblendung des Overlays.
       if (step.tabIndex != null && tabController.index != step.tabIndex) {
         tabController.animateTo(step.tabIndex!);
-        await Future.delayed(const Duration(milliseconds: 300));
-        if (!context.mounted || !isTutorialActive) return;
       }
 
       // Warten, bis das Ziel-Widget gelayoutet ist
@@ -979,12 +988,37 @@ class TutorialHelper {
     _beendeExpiryTutorial(context);
   }
 
+  /// Wartet, bis die Einblend-Animation der aktuellen Seite fertig ist.
+  static Future<void> _warteAufRouteAnimation(BuildContext context) async {
+    final animation = ModalRoute.of(context)?.animation;
+    if (animation == null || animation.status == AnimationStatus.completed) {
+      return;
+    }
+    final completer = Completer<void>();
+    void listener(AnimationStatus status) {
+      if (status == AnimationStatus.completed && !completer.isCompleted) {
+        completer.complete();
+      }
+    }
+
+    animation.addStatusListener(listener);
+    try {
+      // Sicherheitsnetz: nie länger als 1 Sekunde warten
+      await completer.future.timeout(
+        const Duration(milliseconds: 1000),
+        onTimeout: () {},
+      );
+    } finally {
+      animation.removeStatusListener(listener);
+    }
+  }
+
   /// Wartet kurz, bis der GlobalKey einem gerenderten Widget zugeordnet ist.
   static Future<void> _warteAufZiel(GlobalKey key, {int maxMs = 1000}) async {
     var verstrichen = 0;
     while (key.currentContext == null && verstrichen < maxMs) {
-      await Future.delayed(const Duration(milliseconds: 50));
-      verstrichen += 50;
+      await Future.delayed(const Duration(milliseconds: 16));
+      verstrichen += 16;
     }
   }
 
@@ -1034,7 +1068,7 @@ class TutorialHelper {
         ),
       ],
       colorShadow: Colors.black,
-      focusAnimationDuration: _fokusDauer,
+      focusAnimationDuration: _expiryFokusDauer,
       unFocusAnimationDuration: _loesDauer,
       opacityShadow: 0.8,
       useSafeArea: true,
@@ -1055,8 +1089,6 @@ class TutorialHelper {
     try {
       tutorial.finish();
     } catch (_) {}
-    // Ausblenden abwarten, damit der nächste Übergang nicht überlappt
-    await Future.delayed(_loesDauer);
     return aktion;
   }
 
