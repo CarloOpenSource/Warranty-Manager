@@ -2,9 +2,9 @@
 
 A modern, privacy-focused Flutter application designed to help you organize and track all your product warranties, purchase receipts, and expiration dates in one secure place.
 
-[![License](https://img.shields.io/badge/License-yellow.svg)](https://github.com/CarlitoTech/Warranty-Manager/blob/main/LICENSE) 
-[![Latest Stable Release](https://img.shields.io/github/v/release/CarlitoTech/Warranty-Manager?label=Stable)](https://github.com/CarlitoTech/Warranty-Manager/releases/latest)
-[![Beta Pre-Release](https://img.shields.io/badge/Beta-red)](https://github.com/CarlitoTech/Warranty-Manager/releases/tag/v1.3.0-beta)
+[![License](https://img.shields.io/badge/License-yellow.svg)](https://github.com/CarloOpenSource/Warranty-Manager/blob/main/LICENSE) 
+[![Latest Stable Release](https://img.shields.io/github/v/release/CarloOpenSource/Warranty-Manager?label=Stable)](https://github.com/CarloOpenSource/Warranty-Manager/releases/latest)
+[![Beta Pre-Release](https://img.shields.io/badge/Beta-red)](https://github.com/CarloOpenSource/Warranty-Manager/releases/tag/Beta)
 
 > ⚠️ **Beta Notice:** The beta builds are intended only for users who explicitly want to test new features. Please note that this is an unstable release, which means the app may crash or data loss might occur. It is highly recommended to create a backup using the data export feature beforehand. Do not install on your daily driver!
 
@@ -18,7 +18,7 @@ A modern, privacy-focused Flutter application designed to help you organize and 
 
 ## Download & Installation
 You don't need to build the app from source! 
-1. Head over to the **[Releases Page](https://github.com/CarlitoTech/Warranty-Manager/releases)**.
+1. Head over to the **[Releases Page](https://github.com/CarloOpenSource/Warranty-Manager/releases)**.
 2. Download the latest `.apk` file.
 3. Install it on your Android device.
 
@@ -69,7 +69,7 @@ You don't need to build the app from source!
 
 ## Roadmap
 - [ ] **Offline AI OCR:** Automatically analyze photos locally to extract and fill in warranty details.
-- [ ] **Custom Notification:** Allow users to customize their Notifications.
+- [x] **Custom Notification:** Allow users to customize their Notifications.
 - [x] **Calendar Export Integration:** Allow users export purchase and expiration dates.
 - [x] **Custom Accent Color:** Allow users to customize and choose their preferred app theme accent color.
 
