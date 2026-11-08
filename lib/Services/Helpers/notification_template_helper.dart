@@ -49,6 +49,101 @@ class NotificationTemplateHelper {
     typeRemarks,
   ];
 
+  /// Maximale Anzahl eigener Textbausteine (typeCustom) pro Vorlage.
+  static const int maxCustomParts = 5;
+
+  /// Zählt, wie viele eigene Textbausteine in der Vorlage vorhanden sind.
+  static int countCustomParts(List<Map<String, String>> parts) {
+    return parts.where((p) => p['type'] == typeCustom).length;
+  }
+
+  // ── Trennzeichen zwischen den Bausteinen ──
+  static const String separatorDot = 'dot';
+  static const String separatorComma = 'comma';
+  static const String separatorCustom = 'custom';
+
+  /// Maximale Länge eines eigenen Trennzeichens (in Zeichen).
+  static const int maxSeparatorLength = 20;
+
+  /// Standard-Trennzeichen (Punkt mit Leerzeichen).
+  static const String defaultSeparator = ' • ';
+
+  /// SharedPreferences-Schlüssel der Trennzeichen-Einstellung.
+  static const String prefSeparatorMode = 'notif_separator_mode';
+  static const String prefSeparatorCustom = 'notif_separator_custom';
+
+  /// Maximale Textlänge, die Android pro Benachrichtigung zulässt.
+  /// Alles darüber hinaus schneidet das System ab.
+  static const int maxNotificationChars = 5120;
+
+  /// Ermittelt das tatsächlich verwendete Trennzeichen aus Modus und
+  /// eigenem Text. Ungültige oder leere Werte ergeben das Standard-Trennzeichen.
+  static String resolveSeparator(String? mode, String? customText) {
+    switch (mode) {
+      case separatorComma:
+        return ', ';
+      case separatorCustom:
+        if (customText == null || customText.isEmpty) return defaultSeparator;
+        final chars = customText.characters;
+        return chars.length > maxSeparatorLength
+            ? chars.take(maxSeparatorLength).toString()
+            : customText;
+      case separatorDot:
+      default:
+        return defaultSeparator;
+    }
+  }
+
+  // ── Zusätzliche Texte (Trennzeichen + Längen-Warnung) ──
+  static const Map<String, Map<String, String>> _extraTexts = {
+    'de': {
+      'sep_title': 'Trennzeichen',
+      'sep_desc': 'Wird zwischen den Bausteinen der Benachrichtigung eingefügt.',
+      'sep_dot': 'Punkt',
+      'sep_comma': 'Komma',
+      'sep_custom_label': 'Eigenes Trennzeichen',
+      'sep_custom_helper': 'Leerzeichen zählen mit',
+      'notif_too_long':
+          'Achtung: Die Benachrichtigung ist sehr lang ({count} Zeichen). Android zeigt höchstens {max} Zeichen an, möglicherweise wird sie nicht vollständig angezeigt.',
+    },
+    'en': {
+      'sep_title': 'Separator',
+      'sep_desc': 'Inserted between the parts of the notification.',
+      'sep_dot': 'Dot',
+      'sep_comma': 'Comma',
+      'sep_custom_label': 'Custom separator',
+      'sep_custom_helper': 'Spaces are counted',
+      'notif_too_long':
+          'Warning: The notification is very long ({count} characters). Android shows at most {max} characters, so it may not be displayed completely.',
+    },
+    'fr': {
+      'sep_title': 'Séparateur',
+      'sep_desc': 'Inséré entre les éléments de la notification.',
+      'sep_dot': 'Point',
+      'sep_comma': 'Virgule',
+      'sep_custom_label': 'Séparateur personnalisé',
+      'sep_custom_helper': 'Les espaces sont comptés',
+      'notif_too_long':
+          "Attention : la notification est très longue ({count} caractères). Android affiche au maximum {max} caractères, elle risque donc de ne pas s'afficher en entier.",
+    },
+    'es': {
+      'sep_title': 'Separador',
+      'sep_desc': 'Se inserta entre los elementos de la notificación.',
+      'sep_dot': 'Punto',
+      'sep_comma': 'Coma',
+      'sep_custom_label': 'Separador personalizado',
+      'sep_custom_helper': 'Los espacios cuentan',
+      'notif_too_long':
+          'Atención: la notificación es muy larga ({count} caracteres). Android muestra como máximo {max} caracteres, por lo que puede que no se muestre completa.',
+    },
+  };
+
+  /// Liefert einen der zusätzlichen Texte in der gewünschten Sprache
+  /// (Fallback: Englisch).
+  static String extraText(String langCode, String key) {
+    return _extraTexts[langCode]?[key] ?? _extraTexts['en']?[key] ?? key;
+  }
+
   /// Alle verfügbaren Baustein-Typen (inkl. custom).
   static const List<String> availableTypes = [
     typeName,
@@ -408,6 +503,7 @@ class NotificationTemplateHelper {
     required Map<String, String>? gerat,
     required String currencySymbol,
     required DateTime? referenceDate,
+    String separator = defaultSeparator,
   }) {
     if (template.isEmpty) {
       return '${getText(langCode, 'notif_body')}$ablaufDatumStr${getText(langCode, 'notif_body_end')}';
@@ -439,7 +535,7 @@ class NotificationTemplateHelper {
         referenceDate: referenceDate,
       );
       if (text.isEmpty) continue;
-      if (!first) buffer.write(' • ');
+      if (!first) buffer.write(separator);
       buffer.write(text);
       first = false;
     }

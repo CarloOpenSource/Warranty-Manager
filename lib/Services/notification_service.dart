@@ -172,7 +172,7 @@ class NotificationService {
         title: titel,
         body: text,
         scheduledDate: scheduledDate,
-        notificationDetails: const NotificationDetails(
+        notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             'garantie_channel_v2',
             'Garantie Erinnerungen',
@@ -181,8 +181,12 @@ class NotificationService {
             importance: Importance.max,
             priority: Priority.high,
             visibility: NotificationVisibility.public,
+            // Ohne BigTextStyle zeigt Android den Text nur einzeilig und
+            // schneidet ihn mit "…" ab. Mit BigTextStyle lässt sich die
+            // Benachrichtigung aufklappen und zeigt den kompletten Text.
+            styleInformation: BigTextStyleInformation(text),
           ),
-          iOS: DarwinNotificationDetails(),
+          iOS: const DarwinNotificationDetails(),
         ),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         payload: payload,
@@ -234,6 +238,10 @@ class NotificationService {
       final prefs = await SharedPreferences.getInstance();
       final currencySymbol = prefs.getString('currency_symbol') ?? '€';
       final template = await _loadTemplate();
+      final separator = NotificationTemplateHelper.resolveSeparator(
+        prefs.getString(NotificationTemplateHelper.prefSeparatorMode),
+        prefs.getString(NotificationTemplateHelper.prefSeparatorCustom),
+      );
 
       final String titel =
           '${getText(langCode, 'notif_title')}$produktName';
@@ -246,6 +254,7 @@ class NotificationService {
         gerat: gerat,
         currencySymbol: currencySymbol,
         referenceDate: benachrichtigungsDatum,
+        separator: separator,
       );
 
       // Payload = Notification-ID → erlaubt später die eindeutige

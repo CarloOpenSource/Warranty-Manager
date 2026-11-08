@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../Services/Helpers/notification_template_helper.dart';
 import '../Services/settings_provider.dart';
 
@@ -16,12 +17,26 @@ class _NotificationSettingsScreenState
   List<Map<String, String>> _parts = [];
   bool _loaded = false;
 
+  // ── Trennzeichen zwischen den Bausteinen ──
+  String _separatorMode = NotificationTemplateHelper.separatorDot;
+  String _customSeparator = '';
+  final TextEditingController _customSepController = TextEditingController();
+
+  String get _separator => NotificationTemplateHelper.resolveSeparator(
+      _separatorMode, _customSeparator);
+
   DateTime get _dummyNotifDate => DateTime.now().add(const Duration(days: 30));
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadTemplate());
+  }
+
+  @override
+  void dispose() {
+    _customSepController.dispose();
+    super.dispose();
   }
 
   // ── Dummy-Gerät für die Vorschau ──
@@ -71,8 +86,28 @@ class _NotificationSettingsScreenState
             NotificationTemplateHelper.defaultTemplate())
         : List<Map<String, String>>.from(cleaned);
 
+    // Trennzeichen-Einstellung laden
+    String sepMode = NotificationTemplateHelper.separatorDot;
+    String sepCustom = '';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      sepMode = prefs.getString(NotificationTemplateHelper.prefSeparatorMode) ??
+          sepMode;
+      sepCustom =
+          prefs.getString(NotificationTemplateHelper.prefSeparatorCustom) ?? '';
+    } catch (_) {}
+    if (sepMode != NotificationTemplateHelper.separatorDot &&
+        sepMode != NotificationTemplateHelper.separatorComma &&
+        sepMode != NotificationTemplateHelper.separatorCustom) {
+      sepMode = NotificationTemplateHelper.separatorDot;
+    }
+    if (!mounted) return;
+
     setState(() {
       _parts = finalParts;
+      _separatorMode = sepMode;
+      _customSeparator = sepCustom;
+      _customSepController.text = sepCustom;
       _loaded = true;
     });
 
@@ -88,8 +123,36 @@ class _NotificationSettingsScreenState
     await settings.setNotifTemplate(_parts);
   }
 
+  // ── Trennzeichen speichern / ändern ──
+  Future<void> _saveSeparator() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          NotificationTemplateHelper.prefSeparatorMode, _separatorMode);
+      await prefs.setString(
+          NotificationTemplateHelper.prefSeparatorCustom, _customSeparator);
+    } catch (_) {}
+  }
+
+  void _setSeparatorMode(String mode) {
+    if (_separatorMode == mode) return;
+    setState(() => _separatorMode = mode);
+    _saveSeparator();
+  }
+
+  void _onCustomSeparatorChanged(String value) {
+    setState(() => _customSeparator = value);
+    _saveSeparator();
+  }
+
   // ── Baustein-Operationen ──
   void _addPart(String type, {String? customText}) {
+    // Sicherheitsnetz: Limit für eigene Textbausteine nie überschreiten.
+    if (type == NotificationTemplateHelper.typeCustom &&
+        NotificationTemplateHelper.countCustomParts(_parts) >=
+            NotificationTemplateHelper.maxCustomParts) {
+      return;
+    }
     setState(() {
       _parts.add(NotificationTemplateHelper.createPart(type,
           customText: customText));
@@ -168,7 +231,13 @@ class _NotificationSettingsScreenState
                   final alreadyAdded = _parts.any((p) => p['type'] == type);
                   final isCustom =
                       type == NotificationTemplateHelper.typeCustom;
-                  final disabled = alreadyAdded && !isCustom;
+                  final customCount =
+                      NotificationTemplateHelper.countCustomParts(_parts);
+                  final maxCustom = NotificationTemplateHelper.maxCustomParts;
+                  // Eigene Texte: gesperrt, sobald das Maximum erreicht ist.
+                  // Alle anderen Bausteine: gesperrt, wenn schon vorhanden.
+                  final disabled =
+                      isCustom ? customCount >= maxCustom : alreadyAdded;
                   final typeColor =
                       NotificationTemplateHelper.colorForType(type);
 
@@ -195,12 +264,19 @@ class _NotificationSettingsScreenState
                       style:
                           TextStyle(color: disabled ? Colors.grey : null),
                     ),
-                    subtitle: disabled
+                    subtitle: isCustom
                         ? Text(
-                            getText(lang, 'notif_part_already_added'),
+                            disabled
+                                ? '${getText(lang, 'notif_part_already_added')} ($customCount/$maxCustom)'
+                                : '$customCount/$maxCustom',
                             style: const TextStyle(fontSize: 12),
                           )
-                        : null,
+                        : (disabled
+                            ? Text(
+                                getText(lang, 'notif_part_already_added'),
+                                style: const TextStyle(fontSize: 12),
+                              )
+                            : null),
                     onTap: disabled
                         ? null
                         : () async {
@@ -465,8 +541,12 @@ class _NotificationSettingsScreenState
               NotificationTemplateHelper.defaultTemplate());
       setState(() {
         _parts = defaultParts;
+        _separatorMode = NotificationTemplateHelper.separatorDot;
+        _customSeparator = '';
+        _customSepController.text = '';
       });
       await _saveTemplate();
+      await _saveSeparator();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(getText(lang, 'notif_saved'))),
@@ -541,7 +621,7 @@ class _NotificationSettingsScreenState
 
       if (!first) {
         spans.add(TextSpan(
-          text: ' • ',
+          text: _separator,
           style: TextStyle(
               color: Colors.grey[400], fontSize: 13, height: 1.4),
         ));
@@ -597,6 +677,7 @@ class _NotificationSettingsScreenState
                           getText(lang, 'notif_preview'), settings),
                       const SizedBox(height: 8),
                       _buildNotificationPreview(settings, lang),
+                      _buildLengthWarning(settings, lang),
                       const SizedBox(height: 24),
 
                       // ── Bausteine-Header ──
@@ -706,7 +787,13 @@ class _NotificationSettingsScreenState
                                   ),
                                 ],
                               ),
-                              child: ListTile(
+                              // Eigenes Material, damit ListTile-Hintergrund und
+                              // Tipp-Effekt nicht vom farbigen Container verdeckt werden.
+                              child: Material(
+                                type: MaterialType.transparency,
+                                borderRadius: BorderRadius.circular(10),
+                                clipBehavior: Clip.antiAlias,
+                                child: ListTile(
                                 contentPadding: const EdgeInsets.only(
                                     left: 10,
                                     right: 4,
@@ -848,6 +935,7 @@ class _NotificationSettingsScreenState
                                   ],
                                 ),
                               ),
+                              ),
                             );
                           }),
                         ),
@@ -877,6 +965,23 @@ class _NotificationSettingsScreenState
 
                       const SizedBox(height: 24),
 
+                      // ── Trennzeichen ──
+                      _buildSectionTitle(
+                          NotificationTemplateHelper.extraText(
+                              lang, 'sep_title'),
+                          settings),
+                      const SizedBox(height: 6),
+                      Text(
+                        NotificationTemplateHelper.extraText(
+                            lang, 'sep_desc'),
+                        style:
+                            TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildSeparatorSelector(settings, lang),
+
+                      const SizedBox(height: 24),
+
                       // ── Reset ──
                       Center(
                         child: TextButton.icon(
@@ -895,6 +1000,99 @@ class _NotificationSettingsScreenState
               ),
             ),
     )
+    );
+  }
+
+  // ── Trennzeichen-Auswahl (Punkt / Komma / eigener Text) ──
+  Widget _buildSeparatorSelector(SettingsProvider settings, String lang) {
+    final options = <String, String>{
+      NotificationTemplateHelper.separatorDot:
+          '${NotificationTemplateHelper.extraText(lang, 'sep_dot')} (•)',
+      NotificationTemplateHelper.separatorComma:
+          '${NotificationTemplateHelper.extraText(lang, 'sep_comma')} (,)',
+      NotificationTemplateHelper.separatorCustom:
+          getText(lang, 'notif_part_custom'),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: options.entries.map((entry) {
+            return ChoiceChip(
+              label: Text(entry.value),
+              selected: _separatorMode == entry.key,
+              selectedColor: settings.appButtonColor.withValues(alpha: 0.2),
+              onSelected: (_) => _setSeparatorMode(entry.key),
+            );
+          }).toList(),
+        ),
+        if (_separatorMode == NotificationTemplateHelper.separatorCustom) ...[
+          const SizedBox(height: 12),
+          TextField(
+            controller: _customSepController,
+            maxLength: NotificationTemplateHelper.maxSeparatorLength,
+            onChanged: _onCustomSeparatorChanged,
+            decoration: InputDecoration(
+              labelText: NotificationTemplateHelper.extraText(
+                  lang, 'sep_custom_label'),
+              helperText: NotificationTemplateHelper.extraText(
+                  lang, 'sep_custom_helper'),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // ── Warnung, wenn die Benachrichtigung zu lang wird ──
+  Widget _buildLengthWarning(SettingsProvider settings, String lang) {
+    final dummy = _buildDummyGerat(settings);
+    final length = NotificationTemplateHelper.buildBody(
+      langCode: lang,
+      template: _parts,
+      produktName: dummy['name'] ?? '',
+      ablaufDatumStr: dummy['ablaufDatum'] ?? '',
+      gerat: dummy,
+      currencySymbol: settings.currencySymbol,
+      referenceDate: _dummyNotifDate,
+      separator: _separator,
+    ).length;
+
+    if (length < NotificationTemplateHelper.maxNotificationChars) {
+      return const SizedBox.shrink();
+    }
+
+    final message =
+        NotificationTemplateHelper.extraText(lang, 'notif_too_long')
+            .replaceAll('{count}', '$length')
+            .replaceAll('{max}',
+                '${NotificationTemplateHelper.maxNotificationChars}');
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.orange.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.orange.withValues(alpha: 0.6)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.warning_amber_rounded,
+                color: Colors.orange, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(message, style: const TextStyle(fontSize: 13)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -920,7 +1118,7 @@ class _NotificationSettingsScreenState
     final previewKey = _parts
         .map((p) =>
             '${p['type']}${p['showLabel']}${p['format']}${p['text']}')
-        .join('|');
+        .join('|') + '#$_separator';
 
     return Container(
       decoration: BoxDecoration(
