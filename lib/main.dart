@@ -20,7 +20,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
 import 'Services/calender_service.dart';
 
-
 import 'Manual/tutorial.dart';
 
 @pragma('vm:entry-point')
@@ -32,14 +31,14 @@ void main() async {
   await NotificationService().init();
 
   final List<String> missingFiles = await StartupCheck.findMissingFiles();
-  
+
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
-  
+
   runApp(
     MultiProvider(
       providers: [
@@ -53,6 +52,22 @@ void main() async {
 class MyApp extends StatelessWidget {
   final List<String> missingFiles;
 
+  // ── Systemweite Textskalierung ──────────────────────────────────────────
+  // Die System-Einstellung des Nutzers (Barrierefreiheit → Schriftgröße) wird
+  // in der gesamten App respektiert, aber auf den Bereich
+  // [kMinTextScaleFactor, kMaxTextScaleFactor] begrenzt.
+  //
+  // kMinTextScaleFactor: verhindert, dass Text durch sehr kleine
+  //                      System-Einstellungen unleserlich wird.
+  // kMaxTextScaleFactor: das "obere Maximum". Selbst wenn der Nutzer im
+  //                      System 200 % einstellt, bleibt die Skalierung
+  //                      in der App auf diesen Faktor begrenzt.
+  //
+  // Zum Ändern des Maximums einfach kMaxTextScaleFactor anpassen
+  // (z. B. 1.5 für mehr Barrierefreiheit).
+  static const double kMinTextScaleFactor = 0.3;
+  static const double kMaxTextScaleFactor = 1.5;
+
   const MyApp({super.key, this.missingFiles = const []});
 
   @override
@@ -64,8 +79,8 @@ class MyApp extends StatelessWidget {
       navigatorKey: NotificationService.navigatorKey,
       onGenerateTitle: (context) => getText(settings.languageCode, 'app_title'),
       debugShowCheckedModeBanner: false,
-      themeMode: settings.themeMode, 
-      
+      themeMode: settings.themeMode,
+
       locale: Locale(settings.languageCode),
       supportedLocales: const [
         Locale('de', ''),
@@ -78,7 +93,7 @@ class MyApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      
+
       builder: (context, child) {
         final MediaQueryData data = MediaQuery.of(context);
 
@@ -92,9 +107,19 @@ class MyApp extends StatelessWidget {
         final double scaleX = data.size.width / designSize.width;
         final double scaleY = data.size.height / designSize.height;
 
+        // ── Systemweite Begrenzung der Schriftgröße ─────────────────────
+        // Der System-TextScaler wird hart auf den erlaubten Bereich geklemmt.
+        // Da wir den gesamten `child` (inkl. Navigator) in diese MediaQuery
+        // wickeln, gilt das Clamping systemweit: für alle Screens, Dialoge,
+        // BottomSheets und SnackBars gleichermaßen.
+        final TextScaler clampedTextScaler = data.textScaler.clamp(
+          minScaleFactor: kMinTextScaleFactor,
+          maxScaleFactor: kMaxTextScaleFactor,
+        );
+
         final MediaQueryData scaledData = data.copyWith(
           size: designSize,
-          textScaler: data.textScaler.clamp(minScaleFactor: 0.8, maxScaleFactor: 1.1),
+          textScaler: clampedTextScaler,
           padding: EdgeInsets.fromLTRB(
             data.padding.left / scaleX,
             data.padding.top / scaleY,
@@ -145,7 +170,7 @@ class MyApp extends StatelessWidget {
           cardColor: Colors.white,
         ),
       ),
-      
+
       darkTheme: settings.applyCustomColors(
         ThemeData(
           brightness: Brightness.dark,
@@ -159,7 +184,7 @@ class MyApp extends StatelessWidget {
               missingFiles: missingFiles,
               nextScreenBuilder: () => const SplashScreen(),
             )
-          : const SplashScreen(), 
+          : const SplashScreen(),
     );
   }
 }
@@ -192,36 +217,36 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, String>> _gerateListe = [];
-  bool _isLoading = true; 
+  bool _isLoading = true;
   String _appDocPath = '';
-  
+
   bool _isTutorialActive = false;
 
   final GlobalKey _addKey = GlobalKey();
   final GlobalKey _settingsKey = GlobalKey();
   final GlobalKey _notificationsKey = GlobalKey();
-  final GlobalKey _demoDeviceKey = GlobalKey(); 
+  final GlobalKey _demoDeviceKey = GlobalKey();
   final GlobalKey _editButtonKey = GlobalKey();
   final GlobalKey _deleteButtonKey = GlobalKey();
   final GlobalKey _filterKey = GlobalKey();
 
-  final Set<String> _ausgewaehlteKategorien = {}; 
-  
+  final Set<String> _ausgewaehlteKategorien = {};
+
   final TextEditingController _suchController = TextEditingController();
   String _suchText = '';
 
   final List<String> _filterKategorieKeys = [
     'electronics', 'furniture', 'household', 'others', 'expired_cat'
   ];
-  
+
   @override
   void initState() {
     super.initState();
-    
+
     if (widget.preloadedListe != null && widget.preloadedDocPath != null) {
       _gerateListe = widget.preloadedListe!;
       _appDocPath = widget.preloadedDocPath!;
-      _isLoading = false; 
+      _isLoading = false;
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -274,7 +299,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await _initDocPath();
       await _ladeListe();
     }
-    
+
     final prefs = await SharedPreferences.getInstance();
     final bool isFirstStart = prefs.getBool('is_first_start') ?? true;
 
@@ -285,16 +310,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
         final String osLang = Platform.localeName.split('_')[0].toLowerCase();
         final settings = Provider.of<SettingsProvider>(context, listen: false);
-        
+
         if (['de', 'en', 'fr', 'es'].contains(osLang)) {
           await settings.setLanguage(osLang);
         } else {
-          await _zeigeSprachAuswahl(); 
+          await _zeigeSprachAuswahl();
         }
-        
+
         if (!mounted) return;
         await _zeigeWaehrungsAuswahlStart();
-        
+
         await prefs.setBool('is_first_start', false);
         _starteTutorialKomplett();
       });
@@ -303,9 +328,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _fordereBenachrichtigungDirektAn() async {
     if (Platform.isAndroid) {
-      final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+      final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+          FlutterLocalNotificationsPlugin();
       await flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
           ?.requestNotificationsPermission();
     }
   }
@@ -313,20 +340,49 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _zeigeSprachAuswahl() async {
     final settings = Provider.of<SettingsProvider>(context, listen: false);
     final lang = settings.languageCode;
-    
+
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          title: Text(getText(lang, 'select_language'), textAlign: TextAlign.center),
+          title: Text(getText(lang, 'select_language'),
+              textAlign: TextAlign.center),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(title: const Text('Deutsch', textAlign: TextAlign.center, style: TextStyle(fontSize: 18)), onTap: () { settings.setLanguage('de'); Navigator.of(dialogContext).pop(); }),
-              ListTile(title: const Text('English', textAlign: TextAlign.center, style: TextStyle(fontSize: 18)), onTap: () { settings.setLanguage('en'); Navigator.of(dialogContext).pop(); }),
-              ListTile(title: const Text('Français', textAlign: TextAlign.center, style: TextStyle(fontSize: 18)), onTap: () { settings.setLanguage('fr'); Navigator.of(dialogContext).pop(); }),
-              ListTile(title: const Text('Español', textAlign: TextAlign.center, style: TextStyle(fontSize: 18)), onTap: () { settings.setLanguage('es'); Navigator.of(dialogContext).pop(); }),
+              ListTile(
+                  title: const Text('Deutsch',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 18)),
+                  onTap: () {
+                    settings.setLanguage('de');
+                    Navigator.of(dialogContext).pop();
+                  }),
+              ListTile(
+                  title: const Text('English',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 18)),
+                  onTap: () {
+                    settings.setLanguage('en');
+                    Navigator.of(dialogContext).pop();
+                  }),
+              ListTile(
+                  title: const Text('Français',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 18)),
+                  onTap: () {
+                    settings.setLanguage('fr');
+                    Navigator.of(dialogContext).pop();
+                  }),
+              ListTile(
+                  title: const Text('Español',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 18)),
+                  onTap: () {
+                    settings.setLanguage('es');
+                    Navigator.of(dialogContext).pop();
+                  }),
             ],
           ),
         );
@@ -353,8 +409,10 @@ class _HomeScreenState extends State<HomeScreen> {
               itemBuilder: (context, index) {
                 final item = appCurrencies[index];
                 return ListTile(
-                  title: Text('${getText(lang, item['label_key']!)} (${item['symbol']})'),
-                  trailing: Text(item['symbol']!, style: const TextStyle(color: Colors.grey)),
+                  title: Text(
+                      '${getText(lang, item['label_key']!)} (${item['symbol']})'),
+                  trailing: Text(item['symbol']!,
+                      style: const TextStyle(color: Colors.grey)),
                   onTap: () {
                     settings.setCurrency(item['symbol']!);
                     Navigator.of(dialogContext).pop();
@@ -374,7 +432,7 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         setState(() {
-          _isTutorialActive = true; 
+          _isTutorialActive = true;
         });
       }
     });
@@ -460,7 +518,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         if (mounted) {
                           setState(() {
                             if (_gerateListe.isNotEmpty) {
-                              _gerateListe.removeWhere((g) => g['isDemo'] == 'true');
+                              _gerateListe
+                                  .removeWhere((g) => g['isDemo'] == 'true');
                             }
                             _isTutorialActive = false;
                           });
@@ -503,8 +562,8 @@ class _HomeScreenState extends State<HomeScreen> {
         if (decoded is List) {
           final List<Map<String, String>> geladen = decoded
               .whereType<Map>()
-              .map((item) => Map<String, String>.from(
-                  item.map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''))))
+              .map((item) => Map<String, String>.from(item
+                  .map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''))))
               .toList();
 
           if (mounted) {
@@ -543,14 +602,16 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime? _parseDatum(String? d) {
     if (d == null) return null;
     final p = d.split('.');
-    if (p.length == 3) return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
+    if (p.length == 3) {
+      return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
+    }
     return null;
   }
 
   String formatiereDatumStr(String? d) {
-    if(d == null || d.isEmpty) return '-';
+    if (d == null || d.isEmpty) return '-';
     final p = d.split('.');
-    if(p.length == 3) {
+    if (p.length == 3) {
       return '${p[0].padLeft(2, '0')}.${p[1].padLeft(2, '0')}.${p[2]}';
     }
     return d;
@@ -573,20 +634,21 @@ class _HomeScreenState extends State<HomeScreen> {
       final kauf = gerat['kaufDatum']?.toLowerCase() ?? '';
       final ablauf = gerat['ablaufDatum']?.toLowerCase() ?? '';
 
-      final matchesSearch = query.isEmpty || 
-                            name.contains(query) || 
-                            woGekauft.contains(query) ||
-                            kauf.contains(query) ||
-                            ablauf.contains(query);
+      final matchesSearch = query.isEmpty ||
+          name.contains(query) ||
+          woGekauft.contains(query) ||
+          kauf.contains(query) ||
+          ablauf.contains(query);
 
       if (!matchesSearch) return false;
 
       if (_ausgewaehlteKategorien.isEmpty) {
         if (isExpired) return false;
       } else {
-        bool isExpiredSelected = _ausgewaehlteKategorien.contains('expired_cat');
+        bool isExpiredSelected =
+            _ausgewaehlteKategorien.contains('expired_cat');
         bool catMatch = _ausgewaehlteKategorien.contains(gerat['kategorie']);
-        
+
         if (isExpiredSelected) {
           if (_ausgewaehlteKategorien.length == 1) {
             if (!isExpired) return false;
@@ -604,7 +666,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     switch (settings.sortOrder) {
       case 'z_a':
-        gefiltert.sort((a, b) => (b['name'] ?? '').toLowerCase().compareTo((a['name'] ?? '').toLowerCase()));
+        gefiltert.sort((a, b) => (b['name'] ?? '')
+            .toLowerCase()
+            .compareTo((a['name'] ?? '').toLowerCase()));
         break;
       case 'newest':
         gefiltert.sort((a, b) {
@@ -629,7 +693,9 @@ class _HomeScreenState extends State<HomeScreen> {
         break;
       case 'a_z':
       default:
-        gefiltert.sort((a, b) => (a['name'] ?? '').toLowerCase().compareTo((b['name'] ?? '').toLowerCase()));
+        gefiltert.sort((a, b) => (a['name'] ?? '')
+            .toLowerCase()
+            .compareTo((b['name'] ?? '').toLowerCase()));
         break;
     }
 
@@ -660,7 +726,8 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(getText(lang, 'cancel')),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              style:
+                  ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: Text(getText(lang, 'delete'),
                   style: const TextStyle(color: Colors.white)),
@@ -719,12 +786,14 @@ class _HomeScreenState extends State<HomeScreen> {
       )),
     );
 
-    if (aktualisiertesGerat != null && aktualisiertesGerat is Map<String, String>) {
+    if (aktualisiertesGerat != null &&
+        aktualisiertesGerat is Map<String, String>) {
       int index = _gerateListe.indexOf(gerat);
       if (index == -1) {
-        index = _gerateListe.indexWhere((g) => jsonEncode(g) == originalGeratStr);
+        index =
+            _gerateListe.indexWhere((g) => jsonEncode(g) == originalGeratStr);
       }
-      
+
       if (index != -1 && mounted) {
         setState(() {
           _gerateListe[index] = aktualisiertesGerat;
@@ -752,20 +821,24 @@ class _HomeScreenState extends State<HomeScreen> {
     return Card(
       key: (index == 0 && _isTutorialActive) ? _demoDeviceKey : null,
       elevation: 3,
-      margin: forSwipe ? EdgeInsets.zero : const EdgeInsets.symmetric(vertical: 8),
+      margin: forSwipe
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(vertical: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: _isTutorialActive ? () {} : () async {
-          await Navigator.push(
-            context,
-            smoothRoute(DetailScreen(
-              gerat: gerat,
-              onEdit: () => _geratBearbeiten(gerat),
-            )),
-          );
-          if (mounted) setState(() {});
-        },
+        onTap: _isTutorialActive
+            ? () {}
+            : () async {
+                await Navigator.push(
+                  context,
+                  smoothRoute(DetailScreen(
+                    gerat: gerat,
+                    onEdit: () => _geratBearbeiten(gerat),
+                  )),
+                );
+                if (mounted) setState(() {});
+              },
         child: Padding(
           padding: const EdgeInsets.all(12.0),
           child: Row(
@@ -777,18 +850,25 @@ class _HomeScreenState extends State<HomeScreen> {
                   builder: (context) {
                     // Kachel-Bilder (Vorschau) bevorzugen, sonst Kassenbon-Fotos
                     final kachelPfadeText = gerat['kachelPfade'];
-                    final kachelListe = (kachelPfadeText != null && kachelPfadeText.isNotEmpty)
-                        ? kachelPfadeText.split(',').where((p) => p.trim().isNotEmpty).toList()
-                        : <String>[];
-                    final anzeigePfade = kachelListe.isNotEmpty ? kachelListe : pfade;
+                    final kachelListe =
+                        (kachelPfadeText != null && kachelPfadeText.isNotEmpty)
+                            ? kachelPfadeText
+                                .split(',')
+                                .where((p) => p.trim().isNotEmpty)
+                                .toList()
+                            : <String>[];
+                    final anzeigePfade =
+                        kachelListe.isNotEmpty ? kachelListe : pfade;
 
                     if (anzeigePfade.isEmpty) {
                       return Container(
                         decoration: BoxDecoration(
-                          color: settings.appButtonColor.withValues(alpha: 0.1),
+                          color: settings.appButtonColor
+                              .withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Icon(Icons.receipt_long, color: settings.appButtonColor, size: 28),
+                        child: Icon(Icons.receipt_long,
+                            color: settings.appButtonColor, size: 28),
                       );
                     }
 
@@ -796,7 +876,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     return GridView.builder(
                       physics: const NeverScrollableScrollPhysics(),
                       padding: EdgeInsets.zero,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      gridDelegate:
+                          SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: anzahl == 1 ? 1 : 2,
                         crossAxisSpacing: 3,
                         mainAxisSpacing: 3,
@@ -805,10 +886,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       itemCount: anzeigePfade.take(4).length,
                       itemBuilder: (context, imgIndex) {
                         final reinerName = anzeigePfade[imgIndex].trim();
-                        final String vollstaendigerPfad =
-                            (reinerName.contains('/') || reinerName.contains('\\'))
-                                ? reinerName
-                                : '$_appDocPath/$reinerName';
+                        final String vollstaendigerPfad = (reinerName
+                                    .contains('/') ||
+                                reinerName.contains('\\'))
+                            ? reinerName
+                            : '$_appDocPath/$reinerName';
 
                         final File imageFile = File(vollstaendigerPfad);
                         return ClipRRect(
@@ -819,9 +901,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             cacheWidth: 200,
                             errorBuilder: (context, error, stackTrace) {
                               return Container(
-                                color: settings.appButtonColor.withValues(alpha: 0.1),
+                                color: settings.appButtonColor
+                                    .withValues(alpha: 0.1),
                                 child: Icon(Icons.receipt_long,
-                                    size: 16, color: settings.appButtonColor),
+                                    size: 16,
+                                    color: settings.appButtonColor),
                               );
                             },
                           ),
@@ -839,7 +923,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Text(
                       gerat['name'] ?? getText(lang, 'unknown'),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 16),
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
@@ -851,7 +936,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         Expanded(
                           child: Text(
                             ladenUndPreis,
-                            style: const TextStyle(color: Colors.grey, fontSize: 13),
+                            style: const TextStyle(
+                                color: Colors.grey, fontSize: 13),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -861,14 +947,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     Row(
                       children: [
-                        Icon(isExpired ? Icons.event_busy : Icons.date_range, size: 14, color: isExpired ? Colors.redAccent : Colors.grey),
+                        Icon(
+                            isExpired
+                                ? Icons.event_busy
+                                : Icons.date_range,
+                            size: 14,
+                            color: isExpired ? Colors.redAccent : Colors.grey),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            '${formatiereDatumStr(gerat['kaufDatum'])}  —  ${formatiereDatumStr(gerat['ablaufDatum'])}', 
+                            '${formatiereDatumStr(gerat['kaufDatum'])}  —  ${formatiereDatumStr(gerat['ablaufDatum'])}',
                             style: TextStyle(
-                              color: isExpired ? Colors.redAccent : Colors.grey[700],
-                              fontWeight: isExpired ? FontWeight.bold : FontWeight.normal,
+                              color: isExpired
+                                  ? Colors.redAccent
+                                  : Colors.grey[700],
+                              fontWeight: isExpired
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                               fontSize: 13,
                             ),
                             overflow: TextOverflow.ellipsis,
@@ -881,31 +976,39 @@ class _HomeScreenState extends State<HomeScreen> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.notifications_active, size: 14, color: Colors.orangeAccent),
+                        const Icon(Icons.notifications_active,
+                            size: 14, color: Colors.orangeAccent),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Builder(
                             builder: (context) {
-                              String display = '${getText(lang, 'reminder')}: ${getText(lang, 'unknown')}';
+                              String display =
+                                  '${getText(lang, 'reminder')}: ${getText(lang, 'unknown')}';
                               final raw = gerat['erinnerung'];
-                              
+
                               if (raw == null || raw == 'Nie') {
-                                display = '${getText(lang, 'reminder')}: ${getText(lang, 'never')}';
+                                display =
+                                    '${getText(lang, 'reminder')}: ${getText(lang, 'never')}';
                               } else {
                                 try {
                                   final decoded = jsonDecode(raw);
                                   if (decoded['ausloeseZeit'] != null) {
-                                    final dt = DateTime.parse(decoded['ausloeseZeit']);
-                                    display = '${getText(lang, 'reminder')}: ${localizeReminderDate(dt, lang, useAmPm)}';
+                                    final dt = DateTime.parse(
+                                        decoded['ausloeseZeit']);
+                                    display =
+                                        '${getText(lang, 'reminder')}: ${localizeReminderDate(dt, lang, useAmPm)}';
                                   }
                                 } catch (_) {
-                                  display = '${getText(lang, 'reminder')}: $raw';
+                                  display =
+                                      '${getText(lang, 'reminder')}: $raw';
                                 }
                               }
                               return Text(
                                 display,
-                                style: const TextStyle(color: Colors.orangeAccent, fontSize: 12),
-                                overflow: TextOverflow.visible, 
+                                style: const TextStyle(
+                                    color: Colors.orangeAccent,
+                                    fontSize: 12),
+                                overflow: TextOverflow.visible,
                                 softWrap: true,
                               );
                             },
@@ -922,14 +1025,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      key: (index == 0 && _isTutorialActive) ? _editButtonKey : null,
-                      icon: Icon(Icons.edit_outlined, color: settings.appButtonColor, size: 22),
-                      onPressed: _isTutorialActive ? () {} : () => _geratBearbeiten(gerat),
+                      key: (index == 0 && _isTutorialActive)
+                          ? _editButtonKey
+                          : null,
+                      icon: Icon(Icons.edit_outlined,
+                          color: settings.appButtonColor, size: 22),
+                      onPressed: _isTutorialActive
+                          ? () {}
+                          : () => _geratBearbeiten(gerat),
                     ),
                     IconButton(
-                      key: (index == 0 && _isTutorialActive) ? _deleteButtonKey : null,
-                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 22),
-                      onPressed: _isTutorialActive ? () {} : () => _geratLoeschen(gerat),
+                      key: (index == 0 && _isTutorialActive)
+                          ? _deleteButtonKey
+                          : null,
+                      icon: const Icon(Icons.delete_outline,
+                          color: Colors.redAccent, size: 22),
+                      onPressed: _isTutorialActive
+                          ? () {}
+                          : () => _geratLoeschen(gerat),
                     ),
                   ],
                 ),
@@ -943,13 +1056,14 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final gefilterteListe = _gefilterteGerate;
-    
+
     final settings = Provider.of<SettingsProvider>(context);
     final lang = settings.languageCode;
 
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
     final showSwipeGestures = settings.useSwipeActions && !_isTutorialActive;
-    
+
     return PopScope(
       canPop: !_isTutorialActive,
       onPopInvokedWithResult: (didPop, result) {},
@@ -958,7 +1072,7 @@ class _HomeScreenState extends State<HomeScreen> {
           title: Text(getText(lang, 'app_title')),
           toolbarHeight: isLandscape ? 40.0 : 56.0,
         ),
-        // NEU: AbsorbPointer blockiert sämtliche Interaktion während des
+        // AbsorbPointer blockiert sämtliche Interaktion während des
         // Tutorials. SafeArea(top: false) sorgt dafür, dass der Inhalt nicht
         // hinter der System-Navigationsleiste verschwindet.
         body: AbsorbPointer(
@@ -992,21 +1106,32 @@ class _HomeScreenState extends State<HomeScreen> {
                                       });
                                     },
                                     decoration: InputDecoration(
-                                      hintText: getText(lang, 'search_hint'), 
-                                      prefixIcon: Icon(Icons.search, color: settings.appButtonColor, size: 20),
+                                      hintText: getText(lang, 'search_hint'),
+                                      prefixIcon: Icon(Icons.search,
+                                          color: settings.appButtonColor,
+                                          size: 20),
                                       suffixIcon: _suchText.isNotEmpty
                                           ? IconButton(
-                                              icon: const Icon(Icons.clear, size: 18),
-                                              onPressed: _isTutorialActive ? () {} : () {
-                                                _suchController.clear();
-                                                setState(() => _suchText = '');
-                                              },
+                                              icon: const Icon(Icons.clear,
+                                                  size: 18),
+                                              onPressed: _isTutorialActive
+                                                  ? () {}
+                                                  : () {
+                                                      _suchController.clear();
+                                                      setState(() =>
+                                                          _suchText = '');
+                                                    },
                                             )
                                           : null,
                                       filled: true,
-                                      fillColor: Theme.of(context).cardColor,
-                                      contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 8),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                      fillColor:
+                                          Theme.of(context).cardColor,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              vertical: 0, horizontal: 8),
+                                      border: OutlineInputBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(10)),
                                     ),
                                   ),
 
@@ -1018,34 +1143,51 @@ class _HomeScreenState extends State<HomeScreen> {
                                       scrollDirection: Axis.horizontal,
                                       itemCount: _filterKategorieKeys.length,
                                       itemBuilder: (context, index) {
-                                        final katKey = _filterKategorieKeys[index];
-                                        final istAusgewaehlt = _ausgewaehlteKategorien.contains(katKey);
+                                        final katKey =
+                                            _filterKategorieKeys[index];
+                                        final istAusgewaehlt =
+                                            _ausgewaehlteKategorien
+                                                .contains(katKey);
 
                                         return Padding(
-                                          padding: const EdgeInsets.only(right: 6),
+                                          padding: const EdgeInsets.only(
+                                              right: 6),
                                           child: FilterChip(
-                                            label: Text(getText(lang, katKey)),
+                                            label: Text(
+                                                getText(lang, katKey)),
                                             selected: istAusgewaehlt,
-                                            selectedColor: settings.appButtonColor,
-                                            checkmarkColor: settings.onAppButtonColor,
+                                            selectedColor:
+                                                settings.appButtonColor,
+                                            checkmarkColor: settings
+                                                .onAppButtonColor,
                                             labelStyle: TextStyle(
                                               color: istAusgewaehlt
-                                                  ? settings.onAppButtonColor
-                                                  : Theme.of(context).textTheme.bodyMedium?.color,
-                                              fontWeight: istAusgewaehlt ? FontWeight.bold : FontWeight.normal,
+                                                  ? settings
+                                                      .onAppButtonColor
+                                                  : Theme.of(context)
+                                                      .textTheme
+                                                      .bodyMedium
+                                                      ?.color,
+                                              fontWeight: istAusgewaehlt
+                                                  ? FontWeight.bold
+                                                  : FontWeight.normal,
                                             ),
-                                            backgroundColor: Theme.of(context).cardColor,
-                                            onSelected: _isTutorialActive 
-                                              ? (selected) {} 
-                                              : (selected) {
-                                                setState(() {
-                                                  if (selected) {
-                                                    _ausgewaehlteKategorien.add(katKey);
-                                                  } else {
-                                                    _ausgewaehlteKategorien.remove(katKey);
-                                                  }
-                                                });
-                                              },
+                                            backgroundColor:
+                                                Theme.of(context)
+                                                    .cardColor,
+                                            onSelected: _isTutorialActive
+                                                ? (selected) {}
+                                                : (selected) {
+                                                    setState(() {
+                                                      if (selected) {
+                                                        _ausgewaehlteKategorien
+                                                            .add(katKey);
+                                                      } else {
+                                                        _ausgewaehlteKategorien
+                                                            .remove(katKey);
+                                                      }
+                                                    });
+                                                  },
                                           ),
                                         );
                                       },
@@ -1062,22 +1204,40 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ? Center(
                                           child: SingleChildScrollView(
                                             child: Padding(
-                                              padding: const EdgeInsets.all(32.0),
+                                              padding:
+                                                  const EdgeInsets.all(32.0),
                                               child: Column(
-                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
                                                 children: [
-                                                  Icon(Icons.devices_other_rounded, size: 80, color: Colors.grey[400]),
+                                                  Icon(
+                                                      Icons
+                                                          .devices_other_rounded,
+                                                      size: 80,
+                                                      color: Colors
+                                                          .grey[400]),
                                                   const SizedBox(height: 20),
                                                   Text(
-                                                    getText(lang, 'no_devices'),
-                                                    textAlign: TextAlign.center,
-                                                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                                    getText(
+                                                        lang, 'no_devices'),
+                                                    textAlign:
+                                                        TextAlign.center,
+                                                    style: const TextStyle(
+                                                        fontSize: 20,
+                                                        fontWeight:
+                                                            FontWeight.bold),
                                                   ),
                                                   const SizedBox(height: 10),
                                                   Text(
-                                                    getText(lang, 'no_devices_desc'),
-                                                    textAlign: TextAlign.center,
-                                                    style: TextStyle(fontSize: 14, color: Colors.grey[600], height: 1.4),
+                                                    getText(lang,
+                                                        'no_devices_desc'),
+                                                    textAlign:
+                                                        TextAlign.center,
+                                                    style: TextStyle(
+                                                        fontSize: 14,
+                                                        color:
+                                                            Colors.grey[600],
+                                                        height: 1.4),
                                                   ),
                                                   const SizedBox(height: 24)
                                                 ],
@@ -1086,121 +1246,207 @@ class _HomeScreenState extends State<HomeScreen> {
                                           ),
                                         )
                                       : Center(
-                                          child: SingleChildScrollView( 
-                                            child: Text(getText(lang, 'no_search_results')),
+                                          child: SingleChildScrollView(
+                                            child: Text(getText(
+                                                lang, 'no_search_results')),
                                           ),
                                         ))
                                   : ListView.builder(
-                                      scrollCacheExtent: const ScrollCacheExtent.pixels(500.0),
-                                      // NEU: Bottom-Padding, damit die letzte Karte
-                                      // nicht vom FAB / der Navigationsleiste verdeckt wird.
-                                      padding: const EdgeInsets.only(top: 0, bottom: 90),
+                                      scrollCacheExtent:
+                                          const ScrollCacheExtent.pixels(
+                                              500.0),
+                                      // Bottom-Padding, damit die letzte Karte
+                                      // nicht vom FAB / der Navigationsleiste
+                                      // verdeckt wird.
+                                      padding: const EdgeInsets.only(
+                                          top: 0, bottom: 90),
                                       itemCount: gefilterteListe.length,
                                       itemBuilder: (context, index) {
-                                        final gerat = gefilterteListe[index];
-                                        final String? bildPfadeText = gerat['bildPfade'];
-                                        final List<String> pfade = (bildPfadeText != null && bildPfadeText.isNotEmpty)
-                                            ? bildPfadeText.split(',')
-                                            : [];
+                                        final gerat =
+                                            gefilterteListe[index];
+                                        final String? bildPfadeText =
+                                            gerat['bildPfade'];
+                                        final List<String> pfade =
+                                            (bildPfadeText != null &&
+                                                    bildPfadeText.isNotEmpty)
+                                                ? bildPfadeText.split(',')
+                                                : [];
 
-                                        final ad = _parseDatum(gerat['ablaufDatum']);
+                                        final ad = _parseDatum(
+                                            gerat['ablaufDatum']);
                                         final now = DateTime.now();
-                                        final isExpired = ad != null && ad.isBefore(DateTime(now.year, now.month, now.day));
+                                        final isExpired = ad != null &&
+                                            ad.isBefore(DateTime(now.year,
+                                                now.month, now.day));
 
-                                        String woText = (gerat['woGekauft'] == 'Unbekannt' || gerat['woGekauft'] == null || gerat['woGekauft']!.isEmpty) 
-                                            ? getText(lang, 'unknown') 
+                                        String woText = (gerat['woGekauft'] ==
+                                                    'Unbekannt' ||
+                                                gerat['woGekauft'] == null ||
+                                                gerat['woGekauft']!.isEmpty)
+                                            ? getText(lang, 'unknown')
                                             : gerat['woGekauft']!;
-                                        
-                                        String waehrung = gerat['waehrung'] ?? settings.currencySymbol;
+
+                                        String waehrung =
+                                            gerat['waehrung'] ??
+                                                settings.currencySymbol;
                                         String preis = gerat['preis'] ?? '';
-                                        String preisText = (preis.isNotEmpty && preis != 'Unbekannt') ? '$preis $waehrung' : '';
-                                        String ladenUndPreis = preisText.isNotEmpty ? '$woText  |  $preisText' : woText;
+                                        String preisText =
+                                            (preis.isNotEmpty &&
+                                                    preis != 'Unbekannt')
+                                                ? '$preis $waehrung'
+                                                : '';
+                                        String ladenUndPreis =
+                                            preisText.isNotEmpty
+                                                ? '$woText  |  $preisText'
+                                                : woText;
 
                                         if (showSwipeGestures) {
-                                          final isRightEdit = settings.swipeRightAction == 'edit';
-                                          final radius = BorderRadius.circular(settings.tileBorderRadius);
+                                          final isRightEdit =
+                                              settings.swipeRightAction ==
+                                                  'edit';
+                                          final radius =
+                                              BorderRadius.circular(
+                                                  settings.tileBorderRadius);
 
                                           final Color rechtsWischFarbe =
-                                              isRightEdit ? Colors.blue.shade600 : Colors.redAccent.shade400;
+                                              isRightEdit
+                                                  ? Colors.blue.shade600
+                                                  : Colors
+                                                      .redAccent.shade400;
                                           final Color linksWischFarbe =
-                                              isRightEdit ? Colors.redAccent.shade400 : Colors.blue.shade600;
+                                              isRightEdit
+                                                  ? Colors
+                                                      .redAccent.shade400
+                                                  : Colors.blue.shade600;
 
-                                          // Aktuelle Wisch-Richtung (null = Ruhezustand) – bestimmt die Farbe der
-                                          // Unterlage, die hinter den abgerundeten Ecken der Card sichtbar ist.
+                                          // Aktuelle Wisch-Richtung
+                                          // (null = Ruhezustand) – bestimmt die
+                                          // Farbe der Unterlage, die hinter den
+                                          // abgerundeten Ecken der Card
+                                          // sichtbar ist.
                                           DismissDirection? aktiveRichtung;
 
                                           return Padding(
-                                            padding: const EdgeInsets.symmetric(vertical: 8),
+                                            padding: const EdgeInsets
+                                                .symmetric(vertical: 8),
                                             child: StatefulBuilder(
-                                              builder: (context, setSwipeState) {
+                                              builder:
+                                                  (context, setSwipeState) {
                                                 return ClipRRect(
                                                   borderRadius: radius,
                                                   child: Stack(
                                                     children: [
-                                                      // Unterlage: füllt die komplette Fläche hinter der Card, also
-                                                      // auch die Ecken, die durch die Rundung der Card frei werden.
+                                                      // Unterlage: füllt die
+                                                      // komplette Fläche hinter
+                                                      // der Card.
                                                       Positioned.fill(
                                                         child: ColoredBox(
-                                                          color: aktiveRichtung == null
-                                                              ? Colors.transparent
-                                                              : (aktiveRichtung == DismissDirection.startToEnd
+                                                          color: aktiveRichtung ==
+                                                                  null
+                                                              ? Colors
+                                                                  .transparent
+                                                              : (aktiveRichtung ==
+                                                                      DismissDirection
+                                                                          .startToEnd
                                                                   ? rechtsWischFarbe
                                                                   : linksWischFarbe),
                                                         ),
                                                       ),
                                                       Dismissible(
-                                                        key: ValueKey(gerat['name']! +
-                                                            (gerat['kaufDatum'] ?? '') +
+                                                        key: ValueKey(gerat[
+                                                                    'name']! +
+                                                            (gerat['kaufDatum'] ??
+                                                                '') +
                                                             index.toString()),
                                                         onUpdate: (details) {
-                                                          final DismissDirection? neu =
-                                                              details.progress > 0 ? details.direction : null;
-                                                          if (neu != aktiveRichtung) {
-                                                            setSwipeState(() => aktiveRichtung = neu);
+                                                          final DismissDirection?
+                                                              neu = details
+                                                                      .progress >
+                                                                  0
+                                                              ? details
+                                                                  .direction
+                                                              : null;
+                                                          if (neu !=
+                                                              aktiveRichtung) {
+                                                            setSwipeState(() =>
+                                                                aktiveRichtung =
+                                                                    neu);
                                                           }
                                                         },
                                                         background: Container(
-                                                          color: rechtsWischFarbe,
-                                                          alignment: Alignment.centerLeft,
-                                                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                                                          color:
+                                                              rechtsWischFarbe,
+                                                          alignment: Alignment
+                                                              .centerLeft,
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .symmetric(
+                                                                  horizontal:
+                                                                      24),
                                                           child: Icon(
-                                                            isRightEdit ? Icons.edit : Icons.delete,
-                                                            color: Colors.white,
+                                                            isRightEdit
+                                                                ? Icons.edit
+                                                                : Icons.delete,
+                                                            color:
+                                                                Colors.white,
                                                             size: 28,
                                                           ),
                                                         ),
-                                                        secondaryBackground: Container(
-                                                          color: linksWischFarbe,
-                                                          alignment: Alignment.centerRight,
-                                                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                                                        secondaryBackground:
+                                                            Container(
+                                                          color:
+                                                              linksWischFarbe,
+                                                          alignment: Alignment
+                                                              .centerRight,
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .symmetric(
+                                                                  horizontal:
+                                                                      24),
                                                           child: Icon(
-                                                            isRightEdit ? Icons.delete : Icons.edit,
-                                                            color: Colors.white,
+                                                            isRightEdit
+                                                                ? Icons.delete
+                                                                : Icons.edit,
+                                                            color:
+                                                                Colors.white,
                                                             size: 28,
                                                           ),
                                                         ),
-                                                        confirmDismiss: (direction) async {
-                                                          if (direction == DismissDirection.startToEnd) {
+                                                        confirmDismiss:
+                                                            (direction) async {
+                                                          if (direction ==
+                                                              DismissDirection
+                                                                  .startToEnd) {
                                                             if (isRightEdit) {
-                                                              _geratBearbeiten(gerat);
+                                                              _geratBearbeiten(
+                                                                  gerat);
                                                               return false;
                                                             } else {
-                                                              await _geratLoeschen(gerat);
+                                                              await _geratLoeschen(
+                                                                  gerat);
                                                               return false;
                                                             }
                                                           } else {
                                                             if (isRightEdit) {
-                                                              await _geratLoeschen(gerat);
+                                                              await _geratLoeschen(
+                                                                  gerat);
                                                               return false;
                                                             } else {
-                                                              _geratBearbeiten(gerat);
+                                                              _geratBearbeiten(
+                                                                  gerat);
                                                               return false;
                                                             }
                                                           }
                                                         },
-                                                        child: _buildCardContent(
-                                                            context, gerat, pfade, isExpired, ladenUndPreis, index,
-                                                            forSwipe: true),
+                                                        child:
+                                                            _buildCardContent(
+                                                                context,
+                                                                gerat,
+                                                                pfade,
+                                                                isExpired,
+                                                                ladenUndPreis,
+                                                                index,
+                                                                forSwipe: true),
                                                       ),
                                                     ],
                                                   ),
@@ -1211,7 +1457,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                         }
 
                                         return _buildCardContent(
-                                            context, gerat, pfade, isExpired, ladenUndPreis, index);
+                                            context,
+                                            gerat,
+                                            pfade,
+                                            isExpired,
+                                            ladenUndPreis,
+                                            index);
                                       },
                                     ),
                             ),
@@ -1223,26 +1474,30 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
 
-        floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+        floatingActionButtonLocation:
+            FloatingActionButtonLocation.centerDocked,
         floatingActionButton: FloatingActionButton(
           key: _addKey,
           backgroundColor: settings.appButtonColor,
-          onPressed: _isTutorialActive ? () {} : () async {
-            final neuesGerat = await Navigator.push(
-              context,
-              smoothRoute(AddScreen(existingDevices: _gerateListe)),
-            );
+          onPressed: _isTutorialActive
+              ? () {}
+              : () async {
+                  final neuesGerat = await Navigator.push(
+                    context,
+                    smoothRoute(AddScreen(existingDevices: _gerateListe)),
+                  );
 
-            if (neuesGerat != null && neuesGerat is Map<String, String>) {
-              setState(() {
-                _gerateListe.insert(0, neuesGerat);
-              });
-              _speichereListe();
-            }
-          },
-          child: Icon(Icons.add, color: settings.onAppButtonColor, size: 28),
+                  if (neuesGerat != null && neuesGerat is Map<String, String>) {
+                    setState(() {
+                      _gerateListe.insert(0, neuesGerat);
+                    });
+                    _speichereListe();
+                  }
+                },
+          child:
+              Icon(Icons.add, color: settings.onAppButtonColor, size: 28),
         ),
-        // NEU: SafeArea um die BottomAppBar, damit auf Geräten mit
+        // SafeArea um die BottomAppBar, damit auf Geräten mit
         // 3-Tasten-Navigation die Icons nicht von der System-Navigationsleiste
         // überdeckt werden.
         bottomNavigationBar: SafeArea(
@@ -1251,60 +1506,73 @@ class _HomeScreenState extends State<HomeScreen> {
             shape: const CircularNotchedRectangle(),
             color: settings.bottomBarColor(context),
             height: isLandscape ? 48.0 : null,
-            padding: isLandscape ? const EdgeInsets.symmetric(horizontal: 16.0) : null,
+            padding: isLandscape
+                ? const EdgeInsets.symmetric(horizontal: 16.0)
+                : null,
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween, 
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 IconButton(
                   key: _notificationsKey,
-                  icon: Icon(Icons.notifications_active, color: settings.bottomBarIconColor(context)),
-                  onPressed: _isTutorialActive ? () {} : () async {
-                    final aktualisierteListe = await Navigator.push(
-                      context,
-                      smoothRoute(ExpiryScreen(gerateListe: _gerateListe)),
-                    );
+                  icon: Icon(Icons.notifications_active,
+                      color: settings.bottomBarIconColor(context)),
+                  onPressed: _isTutorialActive
+                      ? () {}
+                      : () async {
+                          final aktualisierteListe = await Navigator.push(
+                            context,
+                            smoothRoute(
+                                ExpiryScreen(gerateListe: _gerateListe)),
+                          );
 
-                    if (aktualisierteListe != null && aktualisierteListe is List<Map<String, String>>) {
-                      setState(() {
-                        _gerateListe.clear();
-                        _gerateListe.addAll(aktualisierteListe);
-                      });
-                      _speichereListe();
-                    }
-                  },
+                          if (aktualisierteListe != null &&
+                              aktualisierteListe
+                                  is List<Map<String, String>>) {
+                            setState(() {
+                              _gerateListe.clear();
+                              _gerateListe.addAll(aktualisierteListe);
+                            });
+                            _speichereListe();
+                          }
+                        },
                 ),
 
                 IconButton(
                   key: _settingsKey,
-                  icon: Icon(Icons.settings, color: settings.bottomBarIconColor(context)),
-                  onPressed: _isTutorialActive ? () {} : () {
-                    Navigator.push(
-                      context,
-                      smoothRoute(SettingsScreen(
-                        onRestartTutorial: () {
-                          Navigator.pop(context); 
-                          _starteTutorialKomplett(); 
-                        },
-                        onAllDataDeleted: () {
-                          Navigator.of(context).pushAndRemoveUntil(
-                            MaterialPageRoute(builder: (context) => const SplashScreen()),
-                            (route) => false,
+                  icon: Icon(Icons.settings,
+                      color: settings.bottomBarIconColor(context)),
+                  onPressed: _isTutorialActive
+                      ? () {}
+                      : () {
+                          Navigator.push(
+                            context,
+                            smoothRoute(SettingsScreen(
+                              onRestartTutorial: () {
+                                Navigator.pop(context);
+                                _starteTutorialKomplett();
+                              },
+                              onAllDataDeleted: () {
+                                Navigator.of(context).pushAndRemoveUntil(
+                                  MaterialPageRoute(
+                                      builder: (context) =>
+                                          const SplashScreen()),
+                                  (route) => false,
+                                );
+                              },
+                              onDataImported: () async {
+                                Navigator.pop(context);
+                                await _ladeListe();
+                                if (mounted) setState(() {});
+                              },
+                            )),
                           );
                         },
-                        onDataImported: () async {
-                          Navigator.pop(context); 
-                          await _ladeListe(); 
-                          if (mounted) setState(() {}); 
-                        }
-                      )),
-                    );
-                  },
                 ),
               ],
             ),
           ),
         ),
-      )
+      ),
     );
   }
 }

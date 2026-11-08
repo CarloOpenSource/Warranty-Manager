@@ -1189,6 +1189,7 @@ class _NotificationSettingsScreenState
     child: RichText(
       text: TextSpan(children: spans),
       textAlign: TextAlign.left,
+      textScaler: MediaQuery.textScalerOf(context),
     ),
   ),
 ),
