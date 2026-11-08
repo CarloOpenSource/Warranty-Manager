@@ -32,12 +32,33 @@ void main() async {
 
   final List<String> missingFiles = await StartupCheck.findMissingFiles();
 
+  // ── Orientierungen ────────────────────────────────────────────────────
+  // Erlaubt:
+  //   • portraitUp      → Handy aufrecht (Standard)
+  //   • landscapeLeft   → Handy nach links gedreht (90°)
+  //   • landscapeRight  → Handy nach rechts gedreht (90°, andere Seite)
+  //
+  // NICHT erlaubt:
+  //   • portraitDown    → Handy auf den Kopf gestellt (180°)
+  //
+  // Grund: portraitDown verursacht auf vielen Geräten (Samsung OneUI,
+  // MIUI/HyperOS, Pixel) Probleme mit der System-Navigationsleiste
+  // (Nav-Bar nicht erreichbar, Status-Bar verschwindet, Touch-Geste wird
+  // als Rotations-Geste interpretiert). Beide Landscape-Richtungen sind
+  // unproblematisch, weil die System-Leisten an der jeweiligen
+  // Bildschirmkante bleiben.
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+
+  // ── System-UI-Modus ───────────────────────────────────────────────────
+  // edgeToEdge: App zeichnet hinter Status- und Nav-Bar, das OS blendet
+  // die Leisten mit Transparenz ein. SafeArea sorgt dafür, dass Inhalte
+  // nicht darunter liegen. Verhindert, dass die System-Bars nach einer
+  // Rotation dauerhaft verschwinden (Immersion-Modus hängt fest).
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   runApp(
     MultiProvider(
@@ -1497,78 +1518,82 @@ class _HomeScreenState extends State<HomeScreen> {
           child:
               Icon(Icons.add, color: settings.onAppButtonColor, size: 28),
         ),
-        // SafeArea um die BottomAppBar, damit auf Geräten mit
-        // 3-Tasten-Navigation die Icons nicht von der System-Navigationsleiste
-        // überdeckt werden.
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: BottomAppBar(
-            shape: const CircularNotchedRectangle(),
-            color: settings.bottomBarColor(context),
-            height: isLandscape ? 48.0 : null,
-            padding: isLandscape
-                ? const EdgeInsets.symmetric(horizontal: 16.0)
-                : null,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  key: _notificationsKey,
-                  icon: Icon(Icons.notifications_active,
-                      color: settings.bottomBarIconColor(context)),
-                  onPressed: _isTutorialActive
-                      ? () {}
-                      : () async {
-                          final aktualisierteListe = await Navigator.push(
-                            context,
-                            smoothRoute(
-                                ExpiryScreen(gerateListe: _gerateListe)),
-                          );
+        // ── Bottom-AppBar ────────────────────────────────────────────────
+        // SafeArea liegt INNERHALB der BottomAppBar, damit die
+        // CircularNotchedRectangle-Aussparung exakt mittig bleibt und der
+        // FAB (centerDocked) sauber in der Aussparung sitzt – auch im
+        // Querformat.
+        bottomNavigationBar: BottomAppBar(
+          shape: const CircularNotchedRectangle(),
+          color: settings.bottomBarColor(context),
+          height: (isLandscape ? 48.0 : 56.0) +
+              MediaQuery.of(context).padding.bottom,
+          padding: EdgeInsets.zero,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    key: _notificationsKey,
+                    icon: Icon(Icons.notifications_active,
+                        color: settings.bottomBarIconColor(context)),
+                    onPressed: _isTutorialActive
+                        ? () {}
+                        : () async {
+                            final aktualisierteListe = await Navigator.push(
+                              context,
+                              smoothRoute(
+                                  ExpiryScreen(gerateListe: _gerateListe)),
+                            );
 
-                          if (aktualisierteListe != null &&
-                              aktualisierteListe
-                                  is List<Map<String, String>>) {
-                            setState(() {
-                              _gerateListe.clear();
-                              _gerateListe.addAll(aktualisierteListe);
-                            });
-                            _speichereListe();
-                          }
-                        },
-                ),
+                            if (aktualisierteListe != null &&
+                                aktualisierteListe
+                                    is List<Map<String, String>>) {
+                              setState(() {
+                                _gerateListe.clear();
+                                _gerateListe.addAll(aktualisierteListe);
+                              });
+                              _speichereListe();
+                            }
+                          },
+                  ),
 
-                IconButton(
-                  key: _settingsKey,
-                  icon: Icon(Icons.settings,
-                      color: settings.bottomBarIconColor(context)),
-                  onPressed: _isTutorialActive
-                      ? () {}
-                      : () {
-                          Navigator.push(
-                            context,
-                            smoothRoute(SettingsScreen(
-                              onRestartTutorial: () {
-                                Navigator.pop(context);
-                                _starteTutorialKomplett();
-                              },
-                              onAllDataDeleted: () {
-                                Navigator.of(context).pushAndRemoveUntil(
-                                  MaterialPageRoute(
-                                      builder: (context) =>
-                                          const SplashScreen()),
-                                  (route) => false,
-                                );
-                              },
-                              onDataImported: () async {
-                                Navigator.pop(context);
-                                await _ladeListe();
-                                if (mounted) setState(() {});
-                              },
-                            )),
-                          );
-                        },
-                ),
-              ],
+                  IconButton(
+                    key: _settingsKey,
+                    icon: Icon(Icons.settings,
+                        color: settings.bottomBarIconColor(context)),
+                    onPressed: _isTutorialActive
+                        ? () {}
+                        : () {
+                            Navigator.push(
+                              context,
+                              smoothRoute(SettingsScreen(
+                                onRestartTutorial: () {
+                                  Navigator.pop(context);
+                                  _starteTutorialKomplett();
+                                },
+                                onAllDataDeleted: () {
+                                  Navigator.of(context).pushAndRemoveUntil(
+                                    MaterialPageRoute(
+                                        builder: (context) =>
+                                            const SplashScreen()),
+                                    (route) => false,
+                                  );
+                                },
+                                onDataImported: () async {
+                                  Navigator.pop(context);
+                                  await _ladeListe();
+                                  if (mounted) setState(() {});
+                                },
+                              )),
+                            );
+                          },
+                  ),
+                ],
+              ),
             ),
           ),
         ),
