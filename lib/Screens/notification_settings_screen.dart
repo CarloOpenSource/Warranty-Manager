@@ -967,13 +967,11 @@ class _NotificationSettingsScreenState
 
                       // ── Trennzeichen ──
                       _buildSectionTitle(
-                          NotificationTemplateHelper.extraText(
-                              lang, 'sep_title'),
+                          getText(lang, 'notif_sep_title'),
                           settings),
                       const SizedBox(height: 6),
                       Text(
-                        NotificationTemplateHelper.extraText(
-                            lang, 'sep_desc'),
+                        getText(lang, 'notif_sep_desc'),
                         style:
                             TextStyle(fontSize: 13, color: Colors.grey[600]),
                       ),
@@ -1007,9 +1005,9 @@ class _NotificationSettingsScreenState
   Widget _buildSeparatorSelector(SettingsProvider settings, String lang) {
     final options = <String, String>{
       NotificationTemplateHelper.separatorDot:
-          '${NotificationTemplateHelper.extraText(lang, 'sep_dot')} (•)',
+          '${getText(lang, 'notif_sep_dot')} (•)',
       NotificationTemplateHelper.separatorComma:
-          '${NotificationTemplateHelper.extraText(lang, 'sep_comma')} (,)',
+          '${getText(lang, 'notif_sep_comma')} (,)',
       NotificationTemplateHelper.separatorCustom:
           getText(lang, 'notif_part_custom'),
     };
@@ -1036,10 +1034,8 @@ class _NotificationSettingsScreenState
             maxLength: NotificationTemplateHelper.maxSeparatorLength,
             onChanged: _onCustomSeparatorChanged,
             decoration: InputDecoration(
-              labelText: NotificationTemplateHelper.extraText(
-                  lang, 'sep_custom_label'),
-              helperText: NotificationTemplateHelper.extraText(
-                  lang, 'sep_custom_helper'),
+              labelText: getText(lang, 'notif_sep_custom_label'),
+              helperText: getText(lang, 'notif_sep_custom_helper'),
               border: const OutlineInputBorder(),
             ),
           ),
@@ -1067,7 +1063,7 @@ class _NotificationSettingsScreenState
     }
 
     final message =
-        NotificationTemplateHelper.extraText(lang, 'notif_too_long')
+        getText(lang, 'notif_too_long')
             .replaceAll('{count}', '$length')
             .replaceAll('{max}',
                 '${NotificationTemplateHelper.maxNotificationChars}');
@@ -1115,10 +1111,12 @@ class _NotificationSettingsScreenState
         '${getText(lang, 'notif_title')}${dummy['name']}';
     final spans = _buildPreviewSpans(settings, lang);
 
-    final previewKey = _parts
+    // Lint-Fix: Interpolation statt Konkatenation mit '+'.
+    final partsJoined = _parts
         .map((p) =>
             '${p['type']}${p['showLabel']}${p['format']}${p['text']}')
-        .join('|') + '#$_separator';
+        .join('|');
+    final previewKey = '$partsJoined#$_separator';
 
     return Container(
       decoration: BoxDecoration(

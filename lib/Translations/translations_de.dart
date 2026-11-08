@@ -407,4 +407,13 @@ const Map<String, String> translationsDe = {
   'notif_sample_remarks': 'Beispiel-Notiz',
   'tile_preview_hint': 'Tippe auf den Stern, um ein Foto als Vorschau auf der Startseite zu markieren.',
   'tile_preview_max': 'Maximal 2 Vorschau-Bilder wählbar!',
+
+  // ── NEU: Trennzeichen & Längen-Warnung ──
+  'notif_sep_title': 'Trennzeichen',
+  'notif_sep_desc': 'Wird zwischen den Bausteinen der Benachrichtigung eingefügt.',
+  'notif_sep_dot': 'Punkt',
+  'notif_sep_comma': 'Komma',
+  'notif_sep_custom_label': 'Eigenes Trennzeichen',
+  'notif_sep_custom_helper': 'Leerzeichen zählen mit',
+  'notif_too_long': 'Achtung: Die Benachrichtigung ist sehr lang ({count} Zeichen). Android zeigt höchstens {max} Zeichen an, möglicherweise wird sie nicht vollständig angezeigt.',
 };

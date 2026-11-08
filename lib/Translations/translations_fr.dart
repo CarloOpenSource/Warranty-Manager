@@ -403,4 +403,13 @@ const Map<String, String> translationsFr = {
   'notif_sample_remarks': 'Note exemple',
   'tile_preview_hint': 'Touchez l\'étoile pour marquer une photo comme aperçu sur l\'écran principal.',
   'tile_preview_max': 'Maximum 2 images d\'aperçu sélectionnables !',
+
+  // ── NOUVEAU : Séparateur et avertissement de longueur ──
+  'notif_sep_title': 'Séparateur',
+  'notif_sep_desc': 'Inséré entre les éléments de la notification.',
+  'notif_sep_dot': 'Point',
+  'notif_sep_comma': 'Virgule',
+  'notif_sep_custom_label': 'Séparateur personnalisé',
+  'notif_sep_custom_helper': 'Les espaces sont comptés',
+  'notif_too_long': "Attention : la notification est très longue ({count} caractères). Android affiche au maximum {max} caractères, elle risque donc de ne pas s'afficher en entier.",
 };

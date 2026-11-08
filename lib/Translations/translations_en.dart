@@ -403,4 +403,13 @@ const Map<String, String> translationsEn = {
   'notif_sample_remarks': 'Sample note',
   'tile_preview_hint': 'Tap the star to mark a photo as preview on the home screen.',
   'tile_preview_max': 'Maximum 2 preview images selectable!',
+
+  // ── NEW: Separator & length warning ──
+  'notif_sep_title': 'Separator',
+  'notif_sep_desc': 'Inserted between the parts of the notification.',
+  'notif_sep_dot': 'Dot',
+  'notif_sep_comma': 'Comma',
+  'notif_sep_custom_label': 'Custom separator',
+  'notif_sep_custom_helper': 'Spaces are counted',
+  'notif_too_long': 'Warning: The notification is very long ({count} characters). Android shows at most {max} characters, so it may not be displayed completely.',
 };
