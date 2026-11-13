@@ -6,8 +6,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
-import '../Services/settings_provider.dart'; 
-import 'package:garantiemanager/Manual/tutorial.dart'; 
+import '../Services/settings_provider.dart';
+import 'package:garantiemanager/Manual/tutorial.dart';
+import 'package:garantiemanager/Screens/edit_screen.dart';
 
 class DetailScreen extends StatefulWidget {
   final Map<String, String> gerat;
@@ -29,7 +30,7 @@ class _DetailScreenState extends State<DetailScreen> {
   final GlobalKey _infoKey = GlobalKey();
   final GlobalKey _downloadKey = GlobalKey();
   final GlobalKey _printKey = GlobalKey();
-  final GlobalKey _backKey = GlobalKey(); 
+  final GlobalKey _backKey = GlobalKey();
 
   @override
   void initState() {
@@ -41,7 +42,7 @@ class _DetailScreenState extends State<DetailScreen> {
           downloadKey: _downloadKey,
           printKey: _printKey,
           infoKey: _infoKey,
-          backKey: _backKey, 
+          backKey: _backKey,
         );
       });
     }
@@ -71,6 +72,7 @@ class _DetailScreenState extends State<DetailScreen> {
                           : Image.file(File(bildPfad), fit: BoxFit.contain),
                     ),
                   ),
+                  // --- Ganz links: Crop-Button (dieselbe Funktion, ganz links) ---
                   Positioned(
                     top: 0,
                     left: 0,
@@ -83,11 +85,44 @@ class _DetailScreenState extends State<DetailScreen> {
                           shape: const CircleBorder(),
                           child: InkWell(
                             customBorder: const CircleBorder(),
+                            onTap: () {
+                              if (!bildPfad.startsWith('http')) {
+                                Navigator.of(ctx).push(
+                                  MaterialPageRoute(
+                                    builder: (ctx2) => EditScreen(
+                                      imageDataPath: bildPfad,
+                                      originalPath: bildPfad,
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Icon(Icons.crop_free, size: 24, color: kreuzFarbe),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // --- Ganz rechts: Schließen-Button ---
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Material(
+                          color: kreisFarbe,
+                          elevation: 3,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
                             onTap: () => Navigator.of(ctx).pop(),
-                            child: SizedBox(
-                              width: 48,
-                              height: 48,
-                              child: Icon(Icons.close, color: kreuzFarbe, size: 28),
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Icon(Icons.close, size: 28, color: kreuzFarbe),
                             ),
                           ),
                         ),
@@ -113,12 +148,12 @@ class _DetailScreenState extends State<DetailScreen> {
         bold: fontBold,
       ),
     );
-    
+
     List<pw.ImageProvider> pdfBilder = [];
     for (String pfad in pfade) {
       try {
         if (pfad.trim().isEmpty) continue;
-        
+
         if (pfad.startsWith('http')) {
           final netImage = await networkImage(pfad);
           pdfBilder.add(netImage);
@@ -177,7 +212,7 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
             pw.SizedBox(height: 24),
-            
+
             if (pdfBilder.isNotEmpty) ...[
               pw.Text('${getText(lang, 'photos')}:', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 12),
@@ -185,8 +220,8 @@ class _DetailScreenState extends State<DetailScreen> {
                 spacing: 16,
                 runSpacing: 16,
                 children: pdfBilder.map((img) => pw.Container(
-                  width: 220, 
-                  height: 300, 
+                  width: 220,
+                  height: 300,
                   child: pw.Image(img, fit: pw.BoxFit.contain)
                 )).toList(),
               ),
@@ -205,7 +240,7 @@ class _DetailScreenState extends State<DetailScreen> {
       name: 'Garantie_${widget.gerat['name'] ?? 'Gerat'}.pdf',
     );
   }
-  
+
   Future<void> _downloadPdf(BuildContext context, List<String> pfade, String wWaehrung, String lang, bool useAmPm) async {
     final pdf = await _erstellePdf(pfade, wWaehrung, lang, useAmPm);
     final pdfBytes = await pdf.save();
@@ -228,7 +263,7 @@ class _DetailScreenState extends State<DetailScreen> {
   String _getErinnerungsText(String lang, bool useAmPm) {
     final rawData = widget.gerat['erinnerung'];
     if (rawData == null || rawData == 'Nie') return getText(lang, 'never');
-    
+
     DateTime? datum;
     try {
       final decoded = jsonDecode(rawData);
@@ -248,7 +283,7 @@ class _DetailScreenState extends State<DetailScreen> {
       final monat = datum.month.toString().padLeft(2, '0');
       final jahr = datum.year.toString();
       final minute = datum.minute.toString().padLeft(2, '0');
-      
+
       if (useAmPm) {
         int hour12 = datum.hour % 12;
         if (hour12 == 0) hour12 = 12;
@@ -260,7 +295,7 @@ class _DetailScreenState extends State<DetailScreen> {
         return '$tag.$monat.$jahr, $stunde:$minute';
       }
     }
-    
+
     return getText(lang, 'unknown');
   }
 
@@ -269,7 +304,7 @@ class _DetailScreenState extends State<DetailScreen> {
     final settings = Provider.of<SettingsProvider>(context);
     final lang = settings.languageCode;
     final useAmPm = settings.useAmPm;
-    
+
     final currency = widget.gerat['waehrung'] ?? settings.currencySymbol;
 
     final String? bildPfadeText = widget.gerat['bildPfade'];
@@ -281,7 +316,7 @@ class _DetailScreenState extends State<DetailScreen> {
     } else {
       preisAnzeige = getText(lang, 'unknown');
     }
-    
+
     String woGekauftAnzeige = widget.gerat['woGekauft'] == 'Unbekannt' ? getText(lang, 'unknown') : (widget.gerat['woGekauft'] ?? '-');
     String bemerkungAnzeige = (widget.gerat['bemerkung'] != null && widget.gerat['bemerkung']!.trim().isNotEmpty) ? widget.gerat['bemerkung']! : '-';
 
@@ -301,15 +336,15 @@ class _DetailScreenState extends State<DetailScreen> {
           iconTheme: IconThemeData(color: appBarFg),
           actionsIconTheme: IconThemeData(color: appBarFg),
           leading: IconButton(
-            key: _backKey, 
+            key: _backKey,
             icon: Icon(Icons.arrow_back, color: appBarFg),
             onPressed: () {
-              if (TutorialHelper.isTutorialActive) return; 
+              if (TutorialHelper.isTutorialActive) return;
               Navigator.pop(context);
             },
           ),
           title: Text(
-            getText(lang, 'details'),  
+            getText(lang, 'details'),
           ),
           actions: [
             if (widget.onEdit != null)
@@ -322,12 +357,12 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             IconButton(
               key: _downloadKey,
-              icon: const Icon(Icons.download), 
+              icon: const Icon(Icons.download),
               onPressed: () => _downloadPdf(context, pfade, currency, lang, useAmPm),
             ),
             IconButton(
               key: _printKey,
-              icon: const Icon(Icons.print), 
+              icon: const Icon(Icons.print),
               onPressed: () => _druckenDetails(context, pfade, currency, lang, useAmPm),
             ),
           ],
@@ -383,7 +418,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                   const SizedBox(height: 10),
                                   _buildInfoRow(context, settings, icon: Icons.store, label: getText(lang, 'bought_at'), value: woGekauftAnzeige),
                                   const SizedBox(height: 10),
-                                  _buildInfoRow(context, settings, icon: Icons.payments, label: getText(lang, 'price'), value: preisAnzeige), 
+                                  _buildInfoRow(context, settings, icon: Icons.payments, label: getText(lang, 'price'), value: preisAnzeige),
                                 ],
                               ),
                             ),
@@ -418,8 +453,8 @@ class _DetailScreenState extends State<DetailScreen> {
                                           shrinkWrap: true,
                                           physics: const NeverScrollableScrollPhysics(),
                                           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                                            maxCrossAxisExtent: 150, 
-                                            crossAxisSpacing: 8, 
+                                            maxCrossAxisExtent: 150,
+                                            crossAxisSpacing: 8,
                                             mainAxisSpacing: 8,
                                           ),
                                           itemCount: pfade.length,
@@ -453,7 +488,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildDetailKachel(BuildContext context, SettingsProvider settings, {Key? key, required Widget child}) {
     return Container(
-      key: key, 
+      key: key,
       width: double.infinity,
       padding: const EdgeInsets.all(16.0),
       decoration: settings.getTileDecoration(context),
@@ -463,7 +498,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildInfoRow(BuildContext context, SettingsProvider settings, {required IconData icon, required String label, required String value, Color? valueColor}) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start, 
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, color: Colors.grey.shade600, size: 20),
         const SizedBox(width: 10),

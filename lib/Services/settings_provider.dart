@@ -912,5 +912,5 @@ String localizeReminderDate(DateTime dt, String langCode, bool useAmPm) {
 
   final timeString = localizeTimeOfDay(dt.hour, dt.minute, langCode, useAmPm);
 
-  return '${getText(langCode, 'on_date')}$t.$m.$j${getText(langCode, 'at_time')}$timeString';
+return '${getText(langCode, 'on_date')}$t.$m.$j${getText(langCode, 'at_time')}$timeString';
 }

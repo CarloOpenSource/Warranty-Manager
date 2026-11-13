@@ -416,4 +416,17 @@ const Map<String, String> translationsDe = {
   'notif_sep_custom_label': 'Eigenes Trennzeichen',
   'notif_sep_custom_helper': 'Leerzeichen zählen mit',
   'notif_too_long': 'Achtung: Die Benachrichtigung ist sehr lang ({count} Zeichen). Android zeigt höchstens {max} Zeichen an, möglicherweise wird sie nicht vollständig angezeigt.',
+
+  // ── Bildbearbeitung (Crop) ──
+  'edit_image': 'Bild bearbeiten',
+  'crop': 'Zuschneiden',
+  'brightness': 'Helligkeit',
+  'contrast': 'Kontrast',
+  'saturation': 'Sättigung',
+  'rotate_left': 'Links drehen',
+  'rotate_right': 'Rechts drehen',
+  'reset': 'Zurücksetzen',
+  'save_crop': 'Gespeichert',
+  'crop_hint': 'Tippe und ziehe rechteckig zum Zuschneiden',
+  'cropping': 'Zuschneiden...',
 };

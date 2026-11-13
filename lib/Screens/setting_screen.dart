@@ -765,28 +765,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
               final entry = Map<String, dynamic>.from(g);
 
 // Pfad-Felder remappen (bildPfade + kachelPfade)
+String remapDateiname(String p) {
+  String fileName = p.trim();
+  if (fileName.contains('/')) {
+    fileName = fileName.split('/').last;
+  }
+  if (fileName.contains('\\')) {
+    fileName = fileName.split('\\').last;
+  }
+  if (fileName.isNotEmpty &&
+      !File('${extractPath.path}/$fileName').existsSync() &&
+      !File('${docDir.path}/$fileName').existsSync()) {
+    missingImages++;
+  }
+  return fileName;
+}
+
 for (final field in ['bildPfade', 'kachelPfade']) {
   final pfade = entry[field]?.toString() ?? '';
   if (pfade.isEmpty) continue;
 
   final teile = pfade.split(',');
   final neuePfade = teile.map((p) {
-    String fileName = p.trim();
-    if (fileName.contains('/')) {
-      fileName = fileName.split('/').last;
-    }
-    if (fileName.contains('\\')) {
-      fileName = fileName.split('\\').last;
-    }
-    if (fileName.isNotEmpty &&
-        !File('${extractPath.path}/$fileName').existsSync() &&
-        !File('${docDir.path}/$fileName').existsSync()) {
-      missingImages++;
-    }
+    final fileName = remapDateiname(p);
     return '${docDir.path}/$fileName';
   }).join(',');
 
   entry[field] = neuePfade;
+}
+
+// Zugeschnittene Foto-Kopien (bildBearbeitungen) remappen: sowohl der
+// Original-Pfad (Schlüssel) als auch der Pfad der bearbeiteten Kopie
+// (Wert 'edited') müssen auf Dateien im neuen App-Dokumentenordner zeigen.
+final rohBearbeitungen = entry['bildBearbeitungen']?.toString() ?? '';
+if (rohBearbeitungen.isNotEmpty) {
+  try {
+    final decodedBearbeitungen = jsonDecode(rohBearbeitungen);
+    if (decodedBearbeitungen is Map) {
+      final neueBearbeitungen = <String, dynamic>{};
+      decodedBearbeitungen.forEach((key, value) {
+        final neuerOriginalName = remapDateiname(key.toString());
+        if (neuerOriginalName.isEmpty) return;
+        final neuerOriginalPfad = '${docDir.path}/$neuerOriginalName';
+
+        if (value is Map) {
+          final altEdited = value['edited']?.toString() ?? '';
+          String neuerEditedPfad = '';
+          if (altEdited.isNotEmpty) {
+            final neuerEditedName = remapDateiname(altEdited);
+            if (neuerEditedName.isNotEmpty) {
+              neuerEditedPfad = '${docDir.path}/$neuerEditedName';
+            }
+          }
+          neueBearbeitungen[neuerOriginalPfad] = {
+            'edited': neuerEditedPfad,
+            'count': value['count']?.toString() ?? '0',
+          };
+        }
+      });
+      entry['bildBearbeitungen'] =
+          neueBearbeitungen.isEmpty ? '' : jsonEncode(neueBearbeitungen);
+    } else {
+      entry['bildBearbeitungen'] = '';
+    }
+  } catch (_) {
+    entry['bildBearbeitungen'] = '';
+  }
 }
 
 gueltige.add(entry);

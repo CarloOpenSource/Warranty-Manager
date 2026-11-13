@@ -412,4 +412,17 @@ const Map<String, String> translationsEn = {
   'notif_sep_custom_label': 'Custom separator',
   'notif_sep_custom_helper': 'Spaces are counted',
   'notif_too_long': 'Warning: The notification is very long ({count} characters). Android shows at most {max} characters, so it may not be displayed completely.',
+
+  // ── Image Editing (Crop) ──
+  'edit_image': 'Edit Image',
+  'crop': 'Crop',
+  'brightness': 'Brightness',
+  'contrast': 'Contrast',
+  'saturation': 'Saturation',
+  'rotate_left': 'Rotate Left',
+  'rotate_right': 'Rotate Right',
+  'reset': 'Reset',
+  'save_crop': 'Saved',
+  'crop_hint': 'Tap and drag to crop',
+  'cropping': 'Cropping...',
 };

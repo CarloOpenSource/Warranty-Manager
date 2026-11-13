@@ -412,4 +412,17 @@ const Map<String, String> translationsEs = {
   'notif_sep_custom_label': 'Separador personalizado',
   'notif_sep_custom_helper': 'Los espacios cuentan',
   'notif_too_long': 'Atención: la notificación es muy larga ({count} caracteres). Android muestra como máximo {max} caracteres, por lo que puede que no se muestre completa.',
+
+  // ── Image Editing (Crop) ──
+  'edit_image': 'Editar imagen',
+  'crop': 'Recortar',
+  'brightness': 'Brillo',
+  'contrast': 'Contraste',
+  'saturation': 'Saturación',
+  'rotate_left': 'Rotar a la izquierda',
+  'rotate_right': 'Rotar a la derecha',
+  'reset': 'Restablecer',
+  'save_crop': 'Guardado',
+  'crop_hint': 'Toca y arrastra para recortar',
+  'cropping': 'Recortando...',
 };

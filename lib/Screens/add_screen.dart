@@ -12,6 +12,7 @@ import '../Services/notification_service.dart';
 import 'package:garantiemanager/Manual/tutorial.dart';
 import 'dart:convert';
 import '../Services/calender_service.dart';
+import 'package:garantiemanager/Screens/edit_screen.dart';
 
 class _SettingsTimeLocalizations extends DefaultMaterialLocalizations {
   final String lang;
@@ -532,6 +533,7 @@ class _AddScreenState extends State<AddScreen> {
                           : Image.file(File(bildPfad), fit: BoxFit.contain),
                     ),
                   ),
+                  // --- Ganz links: Crop-Button (dieselbe Funktion, ganz links) ---
                   Positioned(
                     top: 0,
                     left: 0,
@@ -544,11 +546,44 @@ class _AddScreenState extends State<AddScreen> {
                           shape: const CircleBorder(),
                           child: InkWell(
                             customBorder: const CircleBorder(),
+                            onTap: () {
+                              if (!bildPfad.startsWith('http')) {
+                                Navigator.of(ctx).push(
+                                  MaterialPageRoute(
+                                    builder: (ctx2) => EditScreen(
+                                      imageDataPath: bildPfad,
+                                      originalPath: bildPfad,
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Icon(Icons.crop_free, size: 24, color: kreuzFarbe),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // --- Ganz rechts: Schließen-Button ---
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Material(
+                          color: kreisFarbe,
+                          elevation: 3,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
                             onTap: () => Navigator.of(ctx).pop(),
-                            child: SizedBox(
-                              width: 48,
-                              height: 48,
-                              child: Icon(Icons.close, color: kreuzFarbe, size: 28),
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Icon(Icons.close, size: 28, color: kreuzFarbe),
                             ),
                           ),
                         ),
