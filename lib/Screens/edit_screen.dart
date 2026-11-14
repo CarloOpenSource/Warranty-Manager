@@ -99,6 +99,10 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   // Track ob Änderungen gemacht wurden
   bool _hasChanges = false;
 
+  // Skalierungsfaktor: Bildschirmpixel / Display-Bildpixel
+  // Wird in LayoutBuilder berechnet und für Crop-Koordinaten genutzt.
+  double _renderScale = 1.0;
+
   // Debounce Timer für Slider
   Timer? _debounceTimer;
   bool _pendingUpdate = false;
@@ -282,11 +286,22 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
   void _rotateLeft() {
     _rotation = (_rotation + 90) % 360;
-    _rebuildFromBase(); // Rotation braucht sofortiges Update
+    _debounceTimer?.cancel();
+    _pendingUpdate = false;
+    _rebuildDisplay(); // aktualisiert _displayWidth/_displayHeight
+    // Crop-Rect auf volle neue (rotierte) Bildgröße zurücksetzen
+    _cropRect = Rect.fromLTWH(0, 0, _displayWidth.toDouble(), _displayHeight.toDouble());
+    _hasChanges = true;
+    if (mounted) setState(() {});
   }
   void _rotateRight() {
-    _rotation = (_rotation - 90) % 360;
-    _rebuildFromBase();
+    _rotation = (_rotation - 90 + 360) % 360;
+    _debounceTimer?.cancel();
+    _pendingUpdate = false;
+    _rebuildDisplay();
+    _cropRect = Rect.fromLTWH(0, 0, _displayWidth.toDouble(), _displayHeight.toDouble());
+    _hasChanges = true;
+    if (mounted) setState(() {});
   }
 
   /// Sofortiges Rebuild (für Rotation, Crop-Mode Toggle).
@@ -387,8 +402,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     final h = _cropRect.height.floor().clamp(1, _baseDisplayImage!.height - y);
 
     _baseDisplayImage = img.copyCrop(_baseDisplayImage!, x: x, y: y, width: w, height: h);
-    _cropRect = Rect.fromLTWH(0, 0, _baseDisplayImage!.width.toDouble(), _baseDisplayImage!.height.toDouble());
-    _rebuildDisplay();
+    _rebuildDisplay(); // aktualisiert _displayWidth/_displayHeight
+    _cropRect = Rect.fromLTWH(0, 0, _displayWidth.toDouble(), _displayHeight.toDouble());
     _hasChanges = true;
   }
 
@@ -422,42 +437,21 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 
   /// Crop-Handle Hit-Test.
-  _DragHandle? _hitTestHandle(Offset pos) {
-    if (!_isCropMode) return null;
-    final handles = _getHandles();
-    for (final h in handles) {
-      final rect = Rect.fromCenter(center: h.pos, width: _handleSize, height: _handleSize);
-      if (rect.contains(pos)) return h;
-    }
-    return null;
-  }
-
-  List<_DragHandle> _getHandles() {
-    return [
-      _DragHandle(_DragType.topLeft, _cropRect.topLeft),
-      _DragHandle(_DragType.topRight, _cropRect.topRight),
-      _DragHandle(_DragType.bottomLeft, _cropRect.bottomLeft),
-      _DragHandle(_DragType.bottomRight, _cropRect.bottomRight),
-      _DragHandle(_DragType.top, Offset(_cropRect.center.dx, _cropRect.top)),
-      _DragHandle(_DragType.bottom, Offset(_cropRect.center.dx, _cropRect.bottom)),
-      _DragHandle(_DragType.left, Offset(_cropRect.left, _cropRect.center.dy)),
-      _DragHandle(_DragType.right, Offset(_cropRect.right, _cropRect.center.dy)),
-    ];
-  }
-
   /// Pan-Start für Crop-Handles.
   void _onPanStart(PointerDownEvent d) {
     if (!_isCropMode) return;
-    final local = _globalToLocal(d.position);
-    _activeHandle = _hitTestHandle(local);
+    // d.localPosition ist bereits relativ zum Listener (= Bildbereich)
+    _activeHandle = _hitTestHandleScreen(d.localPosition);
   }
 
   /// Pan-Update für Crop-Handles.
   void _onPanUpdate(PointerMoveEvent d) {
     if (!_isCropMode || _activeHandle == null) return;
-    final local = _globalToLocal(d.position);
+    // Bildschirmkoordinaten → Bildpixel-Koordinaten
+    final s = _renderScale > 0 ? _renderScale : 1.0;
+    final imgPos = Offset(d.localPosition.dx / s, d.localPosition.dy / s);
     setState(() {
-      _cropRect = _resizeRect(_cropRect, _activeHandle!.type, local);
+      _cropRect = _resizeRect(_cropRect, _activeHandle!.type, imgPos);
       _hasChanges = true;
     });
   }
@@ -466,11 +460,27 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _activeHandle = null;
   }
 
-  /// Konvertiert globale Position in lokale Bild-Koordinaten.
-  Offset _globalToLocal(Offset global) {
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null) return Offset.zero;
-    return renderBox.globalToLocal(global);
+  /// Prüft, ob eine Bildschirmposition (relativ zum Bild-Listener) einen Handle trifft.
+  /// Handles werden in Bildschirm-Pixeln verglichen (= Bildpixel × _renderScale).
+  _DragHandle? _hitTestHandleScreen(Offset screenLocal) {
+    if (!_isCropMode || _renderScale <= 0) return null;
+    final s = _renderScale;
+    final r = _cropRect;
+    final List<({_DragType type, Offset pos})> handles = [
+      (type: _DragType.topLeft,     pos: Offset(r.left * s,      r.top * s)),
+      (type: _DragType.topRight,    pos: Offset(r.right * s,     r.top * s)),
+      (type: _DragType.bottomLeft,  pos: Offset(r.left * s,      r.bottom * s)),
+      (type: _DragType.bottomRight, pos: Offset(r.right * s,     r.bottom * s)),
+      (type: _DragType.top,         pos: Offset(r.center.dx * s, r.top * s)),
+      (type: _DragType.bottom,      pos: Offset(r.center.dx * s, r.bottom * s)),
+      (type: _DragType.left,        pos: Offset(r.left * s,      r.center.dy * s)),
+      (type: _DragType.right,       pos: Offset(r.right * s,     r.center.dy * s)),
+    ];
+    for (final h in handles) {
+      final hitRect = Rect.fromCenter(center: h.pos, width: _handleSize, height: _handleSize);
+      if (hitRect.contains(screenLocal)) return _DragHandle(h.type, h.pos);
+    }
+    return null;
   }
 
   /// Vergrößert/verkleinert das Crop-Rechteck am Handle.
@@ -537,52 +547,81 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
               if (_isLoading)
                 const Center(child: CircularProgressIndicator())
               else
-                Center(
-                  child: _displayBytes != null
-                      ? SizedBox(
-                          width: _displayWidth.toDouble(),
-                          height: _displayHeight.toDouble(),
-                          child: InteractiveViewer(
-                            panEnabled: true,
-                            minScale: 0.5,
-                            maxScale: 4.0,
-                            child: Stack(
+                // LayoutBuilder passt das Bild an die verfügbare Fläche an,
+                // damit der Crop-Rahmen nie außerhalb des Bildschirms liegt.
+                Positioned.fill(
+                  child: _displayBytes == null || _displayWidth == 0 || _displayHeight == 0
+                      ? const SizedBox.shrink()
+                      : LayoutBuilder(
+                          builder: (ctx, constraints) {
+                            final double imgW = _displayWidth.toDouble();
+                            final double imgH = _displayHeight.toDouble();
+                            final double scale = math.min(
+                              constraints.maxWidth / imgW,
+                              constraints.maxHeight / imgH,
+                            );
+                            final double fitW = imgW * scale;
+                            final double fitH = imgH * scale;
+                            final double offsetX = (constraints.maxWidth - fitW) / 2;
+                            final double offsetY = (constraints.maxHeight - fitH) / 2;
+                            // Skalierungsfaktor für Koordinaten-Umrechnung speichern
+                            _renderScale = scale;
+                            return Stack(
                               children: [
-                                // Bild
-                                Image.memory(
-                                  _displayBytes!,
-                                  fit: BoxFit.contain,
-                                  width: _displayWidth.toDouble(),
-                                  height: _displayHeight.toDouble(),
-                                  gaplessPlayback: true,
-                                ),
-                                // Crop-Overlay (exakt auf Bildgröße, nur im Crop-Mode)
-                                if (_isCropMode)
-                                  Positioned.fill(
-                                    child: IgnorePointer(
-                                      ignoring: !_isCropMode,
-                                      child: Listener(
-                                        onPointerDown: (PointerDownEvent e) => _onPanStart(e),
-                                        onPointerMove: (PointerMoveEvent e) => _onPanUpdate(e),
-                                        onPointerUp: (PointerUpEvent e) => _onPanEnd(e),
-                                        behavior: HitTestBehavior.translucent,
-                                        child: CustomPaint(
-                                          size: Size(_displayWidth.toDouble(), _displayHeight.toDouble()),
-                                          painter: _CropPainter(
-                                            cropRect: _cropRect,
-                                            isActive: true,
-                                            handleSize: _handleSize,
-                                            brightness: Theme.of(context).brightness,
+                                // Bild – mit Zoom/Pan wenn NICHT im Crop-Mode
+                                Positioned(
+                                  left: offsetX, top: offsetY,
+                                  width: fitW, height: fitH,
+                                  child: _isCropMode
+                                      ? Image.memory(
+                                          _displayBytes!,
+                                          fit: BoxFit.fill,
+                                          gaplessPlayback: true,
+                                        )
+                                      : InteractiveViewer(
+                                          panEnabled: true,
+                                          minScale: 0.5,
+                                          maxScale: 4.0,
+                                          child: Image.memory(
+                                            _displayBytes!,
+                                            fit: BoxFit.fill,
+                                            gaplessPlayback: true,
                                           ),
+                                        ),
+                                ),
+                                // Crop-Overlay – exakt über dem skalierten Bild,
+                                // AUSSERHALB des InteractiveViewer damit Koordinaten
+                                // immer zum sichtbaren Bild passen.
+                                if (_isCropMode)
+                                  Positioned(
+                                    left: offsetX, top: offsetY,
+                                    width: fitW, height: fitH,
+                                    child: Listener(
+                                      onPointerDown: _onPanStart,
+                                      onPointerMove: _onPanUpdate,
+                                      onPointerUp: _onPanEnd,
+                                      behavior: HitTestBehavior.translucent,
+                                      child: CustomPaint(
+                                        size: Size(fitW, fitH),
+                                        painter: _CropPainter(
+                                          // Crop-Rect von Bildpixeln → Bildschirmpixel
+                                          cropRect: Rect.fromLTWH(
+                                            _cropRect.left * scale,
+                                            _cropRect.top * scale,
+                                            _cropRect.width * scale,
+                                            _cropRect.height * scale,
+                                          ),
+                                          isActive: true,
+                                          handleSize: _handleSize,
+                                          brightness: Theme.of(context).brightness,
                                         ),
                                       ),
                                     ),
                                   ),
                               ],
-                            ),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
+                            );
+                          },
+                        ),
                 ),
 
               // --- GANZ LINKS: SCHLIESSEN (Kreuz) ---
@@ -842,4 +881,146 @@ class _CropPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_CropPainter o) => o.cropRect != cropRect || o.isActive != isActive;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BildVollbildScreen – wiederverwendbarer Vollbild-Betrachter mit Bearbeiten-
+// Button. Verwaltet seinen eigenen Version-Counter, damit Image.file nach
+// einem Speichern automatisch neu geladen wird.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Ergebnis, das nach einer Bildbearbeitung an den Aufrufer zurückgegeben wird.
+class BildVollbildResult {
+  const BildVollbildResult();
+}
+
+class BildVollbildScreen extends StatefulWidget {
+  final String bildPfad;
+
+  /// Wird nach einer erfolgreichen Bearbeitung aufgerufen, damit der Aufrufer
+  /// z. B. seine Thumbnail-Liste aktualisieren kann.
+  final VoidCallback? onImageEdited;
+
+  const BildVollbildScreen({
+    super.key,
+    required this.bildPfad,
+    this.onImageEdited,
+  });
+
+  @override
+  State<BildVollbildScreen> createState() => _BildVollbildScreenState();
+}
+
+class _BildVollbildScreenState extends State<BildVollbildScreen> {
+  /// Erhöhen erzwingt Flutter ein neues Widget (neuer Key → Cache verworfen).
+  int _version = 0;
+
+  Future<void> _oeffneEditor() async {
+    if (widget.bildPfad.startsWith('http')) return;
+    final file = File(widget.bildPfad);
+    if (!file.existsSync()) return;
+
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EditScreen(
+          imageDataPath: widget.bildPfad,
+          originalPath: widget.bildPfad,
+        ),
+      ),
+    );
+
+    if (result != null && mounted) {
+      // Eigenen Counter erhöhen → Vollbild-Bild wird neu geladen
+      setState(() => _version++);
+      // Eltern-Widget informieren (z. B. für Thumbnail-Update)
+      widget.onImageEdited?.call();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool istDunkel = Theme.of(context).brightness == Brightness.dark;
+    final Color kreisFarbe = istDunkel ? Colors.black : Colors.white;
+    final Color symbolFarbe = istDunkel ? Colors.white : Colors.black;
+
+    Widget bild;
+    if (widget.bildPfad.startsWith('http')) {
+      bild = Image.network(
+        widget.bildPfad,
+        fit: BoxFit.contain,
+        key: ValueKey('${widget.bildPfad}_$_version'),
+      );
+    } else {
+      bild = Image.file(
+        File(widget.bildPfad),
+        fit: BoxFit.contain,
+        key: ValueKey('${widget.bildPfad}_$_version'),
+        gaplessPlayback: true,
+      );
+    }
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: istDunkel ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      child: Scaffold(
+        backgroundColor: istDunkel ? Colors.black : Colors.white,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                panEnabled: true,
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: bild,
+              ),
+            ),
+            // Schließen (links)
+            Positioned(
+              top: 0, left: 0,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Material(
+                    color: kreisFarbe,
+                    elevation: 3,
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Icon(Icons.close, size: 28, color: symbolFarbe),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Bearbeiten (rechts) – nur für lokale Dateien
+            if (!widget.bildPfad.startsWith('http'))
+              Positioned(
+                top: 0, right: 0,
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Material(
+                      color: kreisFarbe,
+                      elevation: 3,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: _oeffneEditor,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Icon(Icons.edit, size: 24, color: symbolFarbe),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
