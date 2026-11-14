@@ -2,7 +2,7 @@
 
 Responsable del tratamiento en el sentido del Reglamento General de Protección de Datos (RGPD) y de la Ley Federal de Protección de Datos de Suiza (LPD):
 
-GitHub: https://github.com/CarlitoTech 
+GitHub: https://github.com/CarloOpenSource 
 Correo electrónico: support.warrantymanager@gmail.com
 
 (en adelante, el «proveedor del servicio» o el «responsable del tratamiento»)
@@ -88,11 +88,11 @@ La presente Política de Privacidad se aplica a la aplicación móvil com.warran
 13. Modificaciones de esta Política de Privacidad
     Nos reservamos el derecho de actualizar esta Política de Privacidad cuando sea necesario, por ejemplo, debido a cambios legales o técnicos. La versión actualmente vigente, junto con su fecha de entrada en vigor, está disponible en la Aplicación y en nuestro sitio web.
 
-Vigente desde: 10 de octubre de 2026
+Vigente desde: 14.11.2026
 
 14. Contacto
 
     Si tiene preguntas sobre protección de datos, póngase en contacto con:
 
-    GitHub: https://github.com/CarlitoTech 
+    GitHub: https://github.com/CarloOpenSource 
     Correo electrónico: support.warrantymanager@gmail.com

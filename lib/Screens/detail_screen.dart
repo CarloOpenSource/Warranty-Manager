@@ -32,6 +32,15 @@ class _DetailScreenState extends State<DetailScreen> {
   final GlobalKey _printKey = GlobalKey();
   final GlobalKey _backKey = GlobalKey();
 
+  // Version-Counter für Bilder, um Cache zu umgehen nach Bearbeitung
+  final Map<String, int> _imageVersions = {};
+
+  void _incrementImageVersion(String path) {
+    setState(() {
+      _imageVersions[path] = (_imageVersions[path] ?? 0) + 1;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -68,8 +77,8 @@ class _DetailScreenState extends State<DetailScreen> {
                       minScale: 0.5,
                       maxScale: 4.0,
                       child: bildPfad.startsWith('http')
-                          ? Image.network(bildPfad, fit: BoxFit.contain)
-                          : Image.file(File(bildPfad), fit: BoxFit.contain),
+                          ? Image.network(bildPfad, fit: BoxFit.contain, key: ValueKey('${bildPfad}_${_imageVersions[bildPfad] ?? 0}'))
+                          : Image.file(File(bildPfad), fit: BoxFit.contain, key: ValueKey('${bildPfad}_${_imageVersions[bildPfad] ?? 0}')),
                     ),
                   ),
                   // --- Ganz links: Schließen-Button ---
@@ -108,7 +117,7 @@ class _DetailScreenState extends State<DetailScreen> {
                           shape: const CircleBorder(),
                           child: InkWell(
                             customBorder: const CircleBorder(),
-                            onTap: () {
+                            onTap: () async {
                               if (!bildPfad.startsWith('http')) {
                                 final file = File(bildPfad);
                                 if (!file.existsSync()) {
@@ -116,7 +125,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                   return;
                                 }
                                 debugPrint('Öffne EditScreen für: $bildPfad');
-                                Navigator.of(ctx).push(
+                                final result = await Navigator.of(ctx).push(
                                   MaterialPageRoute(
                                     builder: (ctx2) => EditScreen(
                                       imageDataPath: bildPfad,
@@ -124,6 +133,10 @@ class _DetailScreenState extends State<DetailScreen> {
                                     ),
                                   ),
                                 );
+                                if (result != null && mounted) {
+                                  // Version erhöhen für Cache-Busting
+                                  _incrementImageVersion(bildPfad);
+                                }
                               }
                             },
                             child: Padding(
@@ -470,7 +483,9 @@ class _DetailScreenState extends State<DetailScreen> {
                                               onTap: () => _zeigeBildVollbild(context, pfad),
                                               child: ClipRRect(
                                                 borderRadius: BorderRadius.circular(8),
-                                                child: pfad.startsWith('http') ? Image.network(pfad, fit: BoxFit.cover) : Image.file(File(pfad), fit: BoxFit.cover),
+                                                child: pfad.startsWith('http')
+                                                    ? Image.network(pfad, fit: BoxFit.cover, key: ValueKey('${pfad}_${_imageVersions[pfad] ?? 0}'))
+                                                    : Image.file(File(pfad), fit: BoxFit.cover, key: ValueKey('${pfad}_${_imageVersions[pfad] ?? 0}')),
                                               ),
                                             );
                                           },

@@ -15,7 +15,7 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   // Text unten im Splash Screen (hier zentral änderbar)
-  static const String _markenText = 'CarlitoTech';
+  static const String _markenText = 'CarloOpenSource';
 
   @override
   void initState() {

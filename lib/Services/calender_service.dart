@@ -499,7 +499,7 @@ class CalendarService {
 
     return 'BEGIN:VCALENDAR\r\n'
         'VERSION:2.0\r\n'
-        'PRODID:-//CarlitoTech//Warranty Manager//EN\r\n'
+        'PRODID:-//CarloOpenSource//Warranty Manager//EN\r\n'
         'CALSCALE:GREGORIAN\r\n'
         'METHOD:PUBLISH\r\n'
         'BEGIN:VEVENT\r\n'
@@ -525,7 +525,7 @@ class CalendarService {
     final buffer = StringBuffer();
     buffer.write('BEGIN:VCALENDAR\r\n');
     buffer.write('VERSION:2.0\r\n');
-    buffer.write('PRODID:-//CarlitoTech//Warranty Manager//EN\r\n');
+    buffer.write('PRODID:-//CarloOpenSource//Warranty Manager//EN\r\n');
     buffer.write('CALSCALE:GREGORIAN\r\n');
     buffer.write('METHOD:PUBLISH\r\n');
 

@@ -17,6 +17,9 @@
 .swiftpm/
 migrate_working_dir/
 
+# CLAUDE.md - lokal, nicht in Git
+CLAUDE.md
+
 # IntelliJ related
 *.iml
 *.ipr

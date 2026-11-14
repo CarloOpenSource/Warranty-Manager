@@ -2,7 +2,7 @@
 
 Controller within the meaning of the General Data Protection Regulation (GDPR) and the Swiss Federal Act on Data Protection (FADP):
 
-GitHub: https://github.com/CarlitoTech 
+GitHub: https://github.com/CarloOpenSource
 Email: support.warrantymanager@gmail.com
 
 (hereinafter the "Service Provider" or "Controller")
@@ -86,11 +86,11 @@ This Privacy Policy applies to the mobile application com.warrantymanager.ch2026
 13. Changes to this Privacy Policy
     We reserve the right to update this Privacy Policy where necessary, for example due to legal or technical changes. The currently applicable version, together with its effective date, is available within the App and on our website.
 
-Effective as of: October 9, 2026
+Effective as of: 14.11.2026
 
 14. Contact
 
     If you have questions regarding data protection, please contact:
     
-    GitHub: https://github.com/CarlitoTech 
+    GitHub: https://github.com/CarloOpenSource
     Email: support.warrantymanager@gmail.com

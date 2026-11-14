@@ -2,7 +2,7 @@
 
 Verantwortlicher im Sinne der Datenschutz-Grundverordnung (DSGVO) und des Schweizer Datenschutzgesetzes (nDSG):
 
-GitHub: https://github.com/CarlitoTech
+GitHub: https://github.com/CarloOpenSource
 E-Mail: support.warrantymanager@gmail.com
 
 (nachfolgend „Dienstanbieter" oder „Verantwortlicher")
@@ -84,10 +84,10 @@ Diese Datenschutzerklärung gilt für die Mobilanwendung com.warrantymanager.ch2
 13. Änderungen dieser Datenschutzerklärung
     Wir behalten uns vor, diese Datenschutzerklärung bei Bedarf anzupassen, etwa aufgrund rechtlicher oder technischer Änderungen. Die jeweils aktuelle Version finden Sie mit Datum in der App bzw. auf unserer Webseite.
 
-Gültig ab: 09.10.2026
+Gültig ab: 14.11.2026
 
 14. Kontakt
     Bei Fragen zum Datenschutz wenden Sie sich bitte an:
 
-    GitHub: https://github.com/CarlitoTech
+    GitHub: https://github.com/CarloOpenSource
     E-Mail: support.warrantymanager@gmail.com

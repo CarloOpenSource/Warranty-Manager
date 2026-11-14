@@ -2,7 +2,7 @@
 
 Responsable du traitement au sens du Règlement général sur la protection des données (RGPD) et de la loi fédérale suisse sur la protection des données (LPD) :
 
-GitHub: https://github.com/CarlitoTech 
+GitHub: https://github.com/CarloOpenSource 
 E-mail : support.warrantymanager@gmail.com
 
 (ci-après le « prestataire de services » ou le « responsable du traitement »)
@@ -88,11 +88,11 @@ La présente politique de confidentialité s'applique à l'application mobile co
 13. Modifications de la présente politique de confidentialité
     Nous nous réservons le droit d'actualiser cette politique de confidentialité si nécessaire, par exemple en raison de modifications légales ou techniques. La version actuellement applicable, avec sa date d'entrée en vigueur, est disponible dans l'Application ainsi que sur notre site web.
 
-En vigueur à compter du : 9 octobre 2026
+En vigueur à compter du : 14.11.2026
 
 14. Contact
 
     Pour toute question relative à la protection des données, veuillez contacter :
 
-    GitHub: https://github.com/CarlitoTech 
+    GitHub: https://github.com/CarloOpenSource 
     E-mail : support.warrantymanager@gmail.com

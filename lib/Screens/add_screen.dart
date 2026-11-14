@@ -98,6 +98,15 @@ class _AddScreenState extends State<AddScreen> {
   bool _istEigeneGarantieSelected = false;
   String _kategorie = 'electronics';
 
+  // Version-Counter für Bilder, um Cache zu umgehen nach Bearbeitung
+  final Map<String, int> _imageVersions = {};
+
+  void _incrementImageVersion(String path) {
+    setState(() {
+      _imageVersions[path] = (_imageVersions[path] ?? 0) + 1;
+    });
+  }
+
   bool _erinnerungNie = false;
   DateTime? _erinnerungsDatum;
   TimeOfDay? _erinnerungsUhrzeit;
@@ -529,48 +538,14 @@ class _AddScreenState extends State<AddScreen> {
                       minScale: 0.5,
                       maxScale: 4.0,
                       child: (kIsWeb || bildPfad.startsWith('http'))
-                          ? Image.network(bildPfad, fit: BoxFit.contain)
-                          : Image.file(File(bildPfad), fit: BoxFit.contain),
+                          ? Image.network(bildPfad, fit: BoxFit.contain, key: ValueKey('${bildPfad}_${_imageVersions[bildPfad] ?? 0}'))
+                          : Image.file(File(bildPfad), fit: BoxFit.contain, key: ValueKey('${bildPfad}_${_imageVersions[bildPfad] ?? 0}')),
                     ),
                   ),
-                  // --- Ganz links: Crop-Button (dieselbe Funktion, ganz links) ---
+                  // --- Ganz links: Schließen-Button ---
                   Positioned(
                     top: 0,
                     left: 0,
-                    child: SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Material(
-                          color: kreisFarbe,
-                          elevation: 3,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: () {
-                              if (!bildPfad.startsWith('http')) {
-                                Navigator.of(ctx).push(
-                                  MaterialPageRoute(
-                                    builder: (ctx2) => EditScreen(
-                                      imageDataPath: bildPfad,
-                                      originalPath: bildPfad,
-                                    ),
-                                  ),
-                                );
-                              }
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Icon(Icons.crop_free, size: 24, color: kreuzFarbe),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // --- Ganz rechts: Schließen-Button ---
-                  Positioned(
-                    top: 0,
-                    right: 0,
                     child: SafeArea(
                       child: Padding(
                         padding: const EdgeInsets.all(8),
@@ -584,6 +559,44 @@ class _AddScreenState extends State<AddScreen> {
                             child: Padding(
                               padding: const EdgeInsets.all(10),
                               child: Icon(Icons.close, size: 28, color: kreuzFarbe),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // --- Ganz rechts: Bearbeiten-Button (Stift) ---
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Material(
+                          color: kreisFarbe,
+                          elevation: 3,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () async {
+                              if (!bildPfad.startsWith('http')) {
+                                final result = await Navigator.of(ctx).push(
+                                  MaterialPageRoute(
+                                    builder: (ctx2) => EditScreen(
+                                      imageDataPath: bildPfad,
+                                      originalPath: bildPfad,
+                                    ),
+                                  ),
+                                );
+                                if (result != null && mounted) {
+                                  // Version erhöhen für Cache-Busting
+                                  _incrementImageVersion(bildPfad);
+                                }
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Icon(Icons.edit, size: 24, color: kreuzFarbe),
                             ),
                           ),
                         ),
@@ -1616,8 +1629,8 @@ class _AddScreenState extends State<AddScreen> {
                                               child: ClipRRect(
                                                 borderRadius: BorderRadius.circular(6),
                                                 child: kIsWeb
-                                                    ? Image.network(bild.path, fit: BoxFit.cover)
-                                                    : Image.file(File(bild.path), fit: BoxFit.cover),
+                                                    ? Image.network(bild.path, fit: BoxFit.cover, key: ValueKey('${bild.path}_${_imageVersions[bild.path] ?? 0}'))
+                                                    : Image.file(File(bild.path), fit: BoxFit.cover, key: ValueKey('${bild.path}_${_imageVersions[bild.path] ?? 0}')),
                                               ),
                                             ),
                                           ),

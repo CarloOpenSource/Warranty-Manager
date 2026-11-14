@@ -48,7 +48,7 @@ You don't need to build the app from source!
 ## Build Instructions for PC users
 1. Clone the repository:
    ```bash
-   git clone https://github.com/CarlitoTech/Warranty-Manager.git
+   git clone https://github.com/CarloOpenSource/Warranty-Manager.git
    ```
    
 2. Navigate into the directory:
@@ -80,5 +80,5 @@ Warranty Manager does not collect, store, or transmit any personal data. All inf
 #### Full Privacy Policy:
 [Read Privacy Policy on Google Sites](https://sites.google.com/view/privacy-policy-warrantymanager/home)
 
-Developed with ❤️ by CarlitoTech
+Developed with ❤️ by CarloOpenSource
    
