@@ -33,7 +33,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   late img.Image _originalImage;
   img.Image? _processedImage;
   final BildCropHelper _cropHelper = BildCropHelper();
-  late bool _istDunkel;
+  bool _istDunkel = true;
 
   // Crop-Bereich (in Bildschirm-Koordinaten)
   Rect _cropRect = Rect.zero;
@@ -44,15 +44,22 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   double _brightness = 1.0; // 1.0 = normal, 0.0 = schwarz, >1 = heller
   double _contrast = 1.0;   // 1.0 = normal, 0.0 = grau, >1 = mehr Kontrast
   double _saturation = 1.0; // 1.0 = normal, 0.0 = Graustufen, >1 = mehr Sättigung
+  int _rotation = 0; // 0, 90, -90 (Drehung aus dem Bottom-Sheet)
 
   // Ladezustand
   bool _isLoading = true;
+
+  // Display-Parameter (für schnelle Anzeige)
+  Uint8List? _displayBytes;
+  int _displayWidth = 0;
+  int _displayHeight = 0;
+
+  static const int _maxDisplayDimension = 1024; // max. Kantenlänge für Anzeige
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _istDunkel = Theme.of(context).brightness == Brightness.dark;
     _loadImage();
   }
 
@@ -73,19 +80,53 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  /// Lädt das Bild und skaliert es aggressiv für die Anzeige herunter.
+  /// Das verhindert "App friert ein" bei großen Fotos (z. B. 12 MP).
   Future<void> _loadImage() async {
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final bytes = await File(widget.imageDataPath).readAsBytes();
-      _originalImage = img.decodeImage(bytes)!;
-      _processedImage = img.Image.from(_originalImage);
+      debugPrint('EditScreen._loadImage: Pfad = ${widget.imageDataPath}');
+      final file = File(widget.imageDataPath);
+      if (!await file.exists()) {
+        debugPrint('EditScreen._loadImage: Datei existiert NICHT');
+        throw FileSystemException('Datei nicht gefunden', widget.imageDataPath);
+      }
+      final bytes = await file.readAsBytes();
+      debugPrint('EditScreen._loadImage: Bytes gelesen: ${bytes.length}');
 
-      // Standard: Bild auf maximale Bildschirmgröße skalieren für Anzeige
-      _applyImageSettings();
-    } catch (e) {
+      // 1. Bild dekodieren (gibt volle Auflösung)
+      _originalImage = img.decodeImage(bytes)!;
+      debugPrint('EditScreen._loadImage: Original: ${_originalImage.width}x${_originalImage.height}');
+
+      // 2. Für Anzeige herunterskalieren (max 1024px Kantenlänge)
+      img.Image displayImage = _originalImage;
+      if (_originalImage.width > _maxDisplayDimension || _originalImage.height > _maxDisplayDimension) {
+        final scale = math.min(
+          _maxDisplayDimension / _originalImage.width,
+          _maxDisplayDimension / _originalImage.height,
+        );
+        displayImage = img.copyResize(_originalImage,
+          width: (_originalImage.width * scale).round(),
+          height: (_originalImage.height * scale).round(),
+        );
+        debugPrint('EditScreen._loadImage: Skaliert auf: ${displayImage.width}x${displayImage.height}');
+      }
+
+      // 3. Initial verarbeiten (Rotation + Helligkeit/Kontrast/Sättigung)
+      _processedImage = _applySettingsToImage(displayImage);
+
+      // 4. Als JPEG für schnelle Anzeige kodieren
+      _displayBytes = Uint8List.fromList(img.encodeJpg(_processedImage!, quality: 85));
+      _displayWidth = _processedImage!.width;
+      _displayHeight = _processedImage!.height;
+
+      _setCropRectForDisplay();
+      debugPrint('EditScreen._loadImage: Fertig');
+    } catch (e, stack) {
+      debugPrint('EditScreen._loadImage FEHLER: $e\n$stack');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler beim Laden des Bildes: $e')),
@@ -101,8 +142,17 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _applyImageSettings() {
-    img.Image image = img.Image.from(_originalImage);
+  /// Wendet Helligkeit, Kontrast, Sättigung und Rotation auf ein Bild an.
+  /// Wird synchron auf dem Main-Thread aufgerufen, aber auf das *kleine* Display-Bild.
+  img.Image _applySettingsToImage(img.Image source) {
+    img.Image image = img.Image.from(source);
+
+    // Drehung anwenden
+    if (_rotation == 90) {
+      image = img.copyRotate(image, angle: 90);
+    } else if (_rotation == -90) {
+      image = img.copyRotate(image, angle: -90);
+    }
 
     // Helligkeit, Kontrast, Sättigung anwenden
     image = img.adjustColor(
@@ -112,59 +162,106 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       saturation: _saturation,
     );
 
-    _processedImage = image;
+    return image;
+  }
 
-    // Standard-Crop-Bereich auf das gesamte Bild
-    if (_cropRect.isEmpty && _processedImage != null) {
-      final screenWidth = MediaQuery.of(context).size.width;
-      final screenHeight = MediaQuery.of(context).size.height;
-      final scale = math.min(screenWidth / _processedImage!.width, screenHeight / _processedImage!.height);
-      final scaledWidth = _processedImage!.width * scale;
-      final scaledHeight = _processedImage!.height * scale;
-      _cropRect = Rect.fromLTWH(
-        (screenWidth - scaledWidth) / 2,
-        (screenHeight - scaledHeight) / 2,
-        scaledWidth,
-        scaledHeight,
-      );
+  /// Berechnet den Crop-Bereich (in Bildschirm-Koordinaten) für das geladene Bild.
+  void _setCropRectForDisplay() {
+    if (_displayWidth == 0 || _displayHeight == 0) return;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final scale = math.min(screenWidth / _displayWidth, screenHeight / _displayHeight);
+    final scaledWidth = _displayWidth * scale;
+    final scaledHeight = _displayHeight * scale;
+    _cropRect = Rect.fromLTWH(
+      (screenWidth - scaledWidth) / 2,
+      (screenHeight - scaledHeight) / 2,
+      scaledWidth,
+      scaledHeight,
+    );
+  }
+
+  /// Aktualisiert die Anzeige nach Änderung von Helligkeit/Kontrast/Sättigung/Rotation.
+  /// Arbeitet auf dem *kleinen* Display-Bild -> sehr schnell, blockiert nicht.
+  Future<void> _applyImageSettings() async {
+    try {
+      // Skalieren auf Display-Größe
+      img.Image displayImage = _originalImage;
+      if (_originalImage.width > _maxDisplayDimension || _originalImage.height > _maxDisplayDimension) {
+        final scale = math.min(
+          _maxDisplayDimension / _originalImage.width,
+          _maxDisplayDimension / _originalImage.height,
+        );
+        displayImage = img.copyResize(_originalImage,
+          width: (_originalImage.width * scale).round(),
+          height: (_originalImage.height * scale).round(),
+        );
+      }
+
+      // Einstellungen anwenden
+      _processedImage = _applySettingsToImage(displayImage);
+
+      // Neu kodieren
+      _displayBytes = Uint8List.fromList(img.encodeJpg(_processedImage!, quality: 85));
+      _displayWidth = _processedImage!.width;
+      _displayHeight = _processedImage!.height;
+
+      setState(() {}); // UI aktualisieren
+      _setCropRectForDisplay();
+    } catch (e) {
+      debugPrint('EditScreen._applyImageSettings FEHLER: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler bei der Bildbearbeitung: $e')),
+        );
+      }
     }
   }
 
   void _applyCrop() async {
-    if (_processedImage == null || _croppingInProgress) return;
+    if (_displayWidth == 0 || _displayHeight == 0 || _croppingInProgress) return;
 
     setState(() {
       _croppingInProgress = true;
     });
 
     try {
-      final original = _processedImage!;
-
-      // Berechne die Pixel-Koordinaten im Originalbild
-      // _cropRect ist in Bildschirm-Koordinaten, muss auf Bild-Koordinaten umgerechnet werden
+      // Berechne Skalierungsfaktor: Display-Bild -> Bildschirm
       final screenWidth = MediaQuery.of(context).size.width;
       final screenHeight = MediaQuery.of(context).size.height;
-
-      // Berechne Skalierungsfaktor: Bild -> Bildschirm
-      final scaleX = screenWidth / original.width;
-      final scaleY = screenHeight / original.height;
+      final scaleX = screenWidth / _displayWidth;
+      final scaleY = screenHeight / _displayHeight;
       final scale = math.min(scaleX, scaleY);
 
-      final x = (_cropRect.left / scale).floor().clamp(0, original.width);
-      final y = (_cropRect.top / scale).floor().clamp(0, original.height);
-      final w = (_cropRect.width / scale).floor().clamp(1, original.width - x);
-      final h = (_cropRect.height / scale).floor().clamp(1, original.height - y);
+      // Crop-Rechteck auf Display-Bild-Koordinaten umrechnen
+      final x = (_cropRect.left / scale).floor().clamp(0, _displayWidth);
+      final y = (_cropRect.top / scale).floor().clamp(0, _displayHeight);
+      final w = (_cropRect.width / scale).floor().clamp(1, _displayWidth - x);
+      final h = (_cropRect.height / scale).floor().clamp(1, _displayHeight - y);
 
-      // Als neue Datei speichern
+      // WICHTIG: Die Koordinaten müssen auf das ORIGINAL-Bild hochgerechnet werden
+      // für den eigentlichen Crop in cropFile
+      final origScaleX = _originalImage.width / _displayWidth;
+      final origScaleY = _originalImage.height / _displayHeight;
+
+      final origX = (x * origScaleX).floor().clamp(0, _originalImage.width);
+      final origY = (y * origScaleY).floor().clamp(0, _originalImage.height);
+      final origW = (w * origScaleX).floor().clamp(1, _originalImage.width - origX);
+      final origH = (h * origScaleY).floor().clamp(1, _originalImage.height - origY);
+
+      debugPrint('EditScreen._applyCrop: Display-Crop: $x,$y ${w}x$h -> Original-Crop: $origX,$origY ${origW}x$origH');
+
+      // Als neue Datei speichern (nutzt Original-Pfad und Original-Koordinaten)
       final savedPath = await _cropHelper.cropFile(
         quelle: widget.originalPath,
-        crop: Rect.fromLTWH(x.toDouble(), y.toDouble(), w.toDouble(), h.toDouble()),
+        crop: Rect.fromLTWH(origX.toDouble(), origY.toDouble(), origW.toDouble(), origH.toDouble()),
       );
 
       if (mounted) {
         Navigator.pop(context, savedPath);
       }
     } catch (e) {
+      debugPrint('EditScreen._applyCrop FEHLER: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler beim Zuschneiden: $e')),
@@ -178,12 +275,13 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
   void _restoreOriginal() {
     setState(() {
-      _processedImage = img.Image.from(_originalImage);
       _brightness = 1.0;
       _contrast = 1.0;
       _saturation = 1.0;
+      _rotation = 0;
       _cropRect = Rect.zero;
     });
+    _applyImageSettings();
   }
 
   @override
@@ -204,14 +302,14 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
               Center(
                 child: GestureDetector(
                   onPanStart: (details) {
-                    if (_croppingInProgress || _processedImage == null) return;
+                    if (_croppingInProgress || _displayWidth == 0) return;
                     setState(() {
                       _isDragging = true;
                       _cropRect = Rect.fromPoints(details.localPosition, details.localPosition);
                     });
                   },
                   onPanUpdate: (details) {
-                    if (_croppingInProgress || !_isDragging || _processedImage == null) return;
+                    if (_croppingInProgress || !_isDragging || _displayWidth == 0) return;
                     setState(() {
                       _cropRect = Rect.fromPoints(
                         _cropRect.topLeft,
@@ -228,15 +326,15 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                   child: Stack(
                     children: [
                       Center(
-                        child: _processedImage != null
+                        child: _displayBytes != null && _displayBytes!.isNotEmpty
                             ? InteractiveViewer(
                                 panEnabled: false,
                                 scaleEnabled: false,
                                 child: SizedBox(
-                                  width: _processedImage!.width.toDouble(),
-                                  height: _processedImage!.height.toDouble(),
+                                  width: _displayWidth.toDouble(),
+                                  height: _displayHeight.toDouble(),
                                   child: Image.memory(
-                                    Uint8List.fromList(img.encodeJpg(_processedImage!)),
+                                    _displayBytes!,
                                     fit: BoxFit.contain,
                                   ),
                                 ),
@@ -244,7 +342,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                             : const SizedBox.shrink(),
                       ),
                       // --- Crop-Overlay ---
-                      if (_processedImage != null)
+                      if (_displayWidth > 0)
                         Positioned.fill(
                           child: CustomPaint(
                             painter: _CropPainter(
@@ -392,8 +490,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                         onChanged: (value) {
                           setState(() {
                             _brightness = value;
-                            _applyImageSettings();
                           });
+                          _applyImageSettings();
                         },
                         activeColor: settings.appButtonColor,
                       ),
@@ -414,8 +512,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                         onChanged: (value) {
                           setState(() {
                             _contrast = value;
-                            _applyImageSettings();
                           });
+                          _applyImageSettings();
                         },
                         activeColor: settings.appButtonColor,
                       ),
@@ -436,8 +534,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                         onChanged: (value) {
                           setState(() {
                             _saturation = value;
-                            _applyImageSettings();
                           });
+                          _applyImageSettings();
                         },
                         activeColor: settings.appButtonColor,
                       ),
@@ -451,12 +549,10 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                   IconButton(
                     icon: const Icon(Icons.rotate_left),
                     onPressed: () {
-                      if (_processedImage != null) {
-                        setState(() {
-                          _processedImage = img.copyRotate(_processedImage!, angle: 90);
-                          _applyImageSettings();
-                        });
-                      }
+                      setState(() {
+                        _rotation = (_rotation + 90) % 360;
+                      });
+                      _applyImageSettings();
                     },
                   ),
 
@@ -464,12 +560,10 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                   IconButton(
                     icon: const Icon(Icons.rotate_right),
                     onPressed: () {
-                      if (_processedImage != null) {
-                        setState(() {
-                          _processedImage = img.copyRotate(_processedImage!, angle: -90);
-                          _applyImageSettings();
-                        });
-                      }
+                      setState(() {
+                        _rotation = (_rotation - 90) % 360;
+                      });
+                      _applyImageSettings();
                     },
                   ),
                 ],

@@ -17,7 +17,7 @@ description: "Privacy-focused Flutter app to easily organize warranties, upload 
 # of the product and file versions while build-number is used as the build suffix.
 publish_to: 'none'   
 # applicationId = "com.warrantymanager.ch2026"
-version: 1.3.0+16 # Beta+xy = Betaversion / Später normale Version X.X.X+Y Y=jedes update +1 !!
+version: 1.3.0+17 # Beta+xy = Betaversion / Später normale Version X.X.X+Y Y=jedes update +1 !!
 
 environment:
   sdk: ^3.12.2

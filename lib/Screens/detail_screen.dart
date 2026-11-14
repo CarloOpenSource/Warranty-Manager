@@ -72,44 +72,10 @@ class _DetailScreenState extends State<DetailScreen> {
                           : Image.file(File(bildPfad), fit: BoxFit.contain),
                     ),
                   ),
-                  // --- Ganz links: Crop-Button (dieselbe Funktion, ganz links) ---
+                  // --- Ganz links: Schließen-Button ---
                   Positioned(
                     top: 0,
                     left: 0,
-                    child: SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Material(
-                          color: kreisFarbe,
-                          elevation: 3,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: () {
-                              if (!bildPfad.startsWith('http')) {
-                                Navigator.of(ctx).push(
-                                  MaterialPageRoute(
-                                    builder: (ctx2) => EditScreen(
-                                      imageDataPath: bildPfad,
-                                      originalPath: bildPfad,
-                                    ),
-                                  ),
-                                );
-                              }
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Icon(Icons.crop_free, size: 24, color: kreuzFarbe),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // --- Ganz rechts: Schließen-Button ---
-                  Positioned(
-                    top: 0,
-                    right: 0,
                     child: SafeArea(
                       child: Padding(
                         padding: const EdgeInsets.all(8),
@@ -123,6 +89,46 @@ class _DetailScreenState extends State<DetailScreen> {
                             child: Padding(
                               padding: const EdgeInsets.all(10),
                               child: Icon(Icons.close, size: 28, color: kreuzFarbe),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // --- Ganz rechts: Bearbeiten-Button (Stift) ---
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Material(
+                          color: kreisFarbe,
+                          elevation: 3,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () {
+                              if (!bildPfad.startsWith('http')) {
+                                final file = File(bildPfad);
+                                if (!file.existsSync()) {
+                                  debugPrint('Datei existiert nicht: $bildPfad');
+                                  return;
+                                }
+                                debugPrint('Öffne EditScreen für: $bildPfad');
+                                Navigator.of(ctx).push(
+                                  MaterialPageRoute(
+                                    builder: (ctx2) => EditScreen(
+                                      imageDataPath: bildPfad,
+                                      originalPath: bildPfad,
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Icon(Icons.edit, size: 24, color: kreuzFarbe),
                             ),
                           ),
                         ),
