@@ -423,6 +423,7 @@ const Map<String, String> translationsEs = {
   'rotate_right': 'Rotar a la derecha',
   'reset': 'Restablecer',
   'reset_all': 'Restablecer todo',
+  'reset_to_original': 'Restaurar original',
   'save_crop': 'Guardado',
   'crop_hint': 'Toca y arrastra para recortar',
   'cropping': 'Recortando...',
@@ -435,5 +436,7 @@ const Map<String, String> translationsEs = {
   'discard_changes_title': '¿Descartar cambios?',
   'discard_changes_desc': 'Tienes cambios sin guardar. ¿Quieres descartarlos?',
   'discard': 'Descartar',
+  'fit_to_screen': 'Ajustar a la pantalla',
+  'reset_zoom': 'Restablecer zoom',
   'crop_done': 'Listo',
 };

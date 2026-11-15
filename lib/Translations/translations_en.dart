@@ -423,6 +423,7 @@ const Map<String, String> translationsEn = {
   'rotate_right': 'Rotate Right',
   'reset': 'Reset',
   'reset_all': 'Reset All',
+  'reset_to_original': 'Restore Original',
   'save_crop': 'Saved',
   'crop_hint': 'Tap and drag to crop',
   'cropping': 'Cropping...',
@@ -435,5 +436,7 @@ const Map<String, String> translationsEn = {
   'discard_changes_title': 'Discard changes?',
   'discard_changes_desc': 'You have unsaved changes. Do you want to discard them?',
   'discard': 'Discard',
+  'fit_to_screen': 'Fit to screen',
+  'reset_zoom': 'Reset Zoom',
   'crop_done': 'Done',
 };

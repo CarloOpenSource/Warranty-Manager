@@ -21,6 +21,7 @@ import '../Services/settings_provider.dart';
 /// - Rotation 0, 90, 180, 270 Grad
 /// - Crop NUR auf dem Bildbereich
 /// - Export/Import von Einstellungen
+/// - Zoom mit sichtbarem Rahmen (Galerie-App-Stil)
 class EditScreen extends StatefulWidget {
   final String imageDataPath;
   final String originalPath;
@@ -100,8 +101,18 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   bool _hasChanges = false;
 
   // Skalierungsfaktor: Bildschirmpixel / Display-Bildpixel
-  // Wird in LayoutBuilder berechnet und für Crop-Koordinaten genutzt.
   double _renderScale = 1.0;
+
+  // Aktuelle Fit-Größen (aus LayoutBuilder) für die Zoom-Steuerung.
+  double _fitWidth = 0.0;
+  double _fitHeight = 0.0;
+  double _containerWidth = 0.0;
+  double _containerHeight = 0.0;
+
+  // ── FIX: TransformationController wird in initState initialisiert ──
+  // War vorher nie initialisiert (immer null) → _zoomToFit und _resetZoom
+  // haben nichts gemacht, da sie direkt mit "if null return" abgebrochen haben.
+  late final TransformationController _zoomController;
 
   // Debounce Timer für Slider
   Timer? _debounceTimer;
@@ -117,6 +128,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    // ── FIX: Controller hier initialisieren, nicht als nullable lassen ──
+    _zoomController = TransformationController();
     WidgetsBinding.instance.addObserver(this);
     _loadImage();
   }
@@ -133,6 +146,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    // ── FIX: Controller auch in dispose() aufräumen ──
+    _zoomController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -252,7 +267,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 
   /// Wendet Helligkeit, Kontrast, Sättigung, Rotation an.
-  /// _rotation: 0, 90, 180, 270
   img.Image _applySettingsToImage(img.Image source) {
     img.Image image = img.Image.from(source);
     if (_rotation == 90) {
@@ -288,12 +302,12 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _rotation = (_rotation + 90) % 360;
     _debounceTimer?.cancel();
     _pendingUpdate = false;
-    _rebuildDisplay(); // aktualisiert _displayWidth/_displayHeight
-    // Crop-Rect auf volle neue (rotierte) Bildgröße zurücksetzen
+    _rebuildDisplay();
     _cropRect = Rect.fromLTWH(0, 0, _displayWidth.toDouble(), _displayHeight.toDouble());
     _hasChanges = true;
     if (mounted) setState(() {});
   }
+
   void _rotateRight() {
     _rotation = (_rotation - 90 + 360) % 360;
     _debounceTimer?.cancel();
@@ -304,7 +318,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
-  /// Sofortiges Rebuild (für Rotation, Crop-Mode Toggle).
   void _rebuildFromBase() {
     _debounceTimer?.cancel();
     _pendingUpdate = false;
@@ -313,8 +326,92 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
+  /// Setzt den Zoom auf die Standard-Ansicht (Bild passt genau in Bildschirm).
+  void _resetZoom() {
+    _zoomController.value = Matrix4.identity();
+  }
+
+  /// Berechnet den Zoom-Faktor für "Herauszoomen mit Rahmen".
+  /// Bei diesem Zoom ist das Bild von einem sichtbaren Rahmen umgeben,
+  /// wie in einer professionellen Galerie-App.
+  double _zoomOutScale(double fitW, double fitH, double maxWidth, double maxHeight) {
+    const double framePadding = 32.0;
+    final availableWidth = (maxWidth - framePadding * 2).clamp(1.0, maxWidth);
+    final availableHeight = (maxHeight - framePadding * 2).clamp(1.0, maxHeight);
+    final scaleX = availableWidth / fitW;
+    final scaleY = availableHeight / fitH;
+    return math.min(scaleX, scaleY);
+  }
+
+  /// Zoomt auf den angegebenen Faktor (relativ zur Fit-Größe).
+  /// Der InteractiveViewer verwendet seine eigene Transformation, daher wird
+  /// die Matrix direkt gesetzt.
+  void _zoomToFit(double targetScale) {
+    final m = Matrix4.identity();
+    // Skalierung um den Mittelpunkt des Containers
+    if (_containerWidth > 0 && _containerHeight > 0 && _fitWidth > 0 && _fitHeight > 0) {
+      // Offset vom Bildmittelpunkt zur Containermitte berechnen
+      final cx = _containerWidth / 2;
+      final cy = _containerHeight / 2;
+      // Translate → Scale → Translate zurück (Rotation um Mittelpunkt)
+      m
+        ..translate(cx, cy)
+        ..scale(targetScale, targetScale)
+        ..translate(-cx, -cy);
+    } else {
+      m.scale(targetScale, targetScale);
+    }
+    _zoomController.value = m;
+  }
+
+  /// ── FIX: Reset setzt jetzt das allererste Original-Backup wieder her ──
+  /// Der "Zurücksetzen"-Button (restore-Icon, rot) stellt das allererste
+  /// geladene Bild wieder her (vor jeder Bearbeitung).
+  /// Alle Regler werden auf Standard zurückgesetzt.
+  void _resetToOriginal() {
+    if (_originalBackup != null) {
+      _baseDisplayImage = img.Image.from(_originalBackup!);
+      if (_originalBackup!.width > _maxDisplayDimension || _originalBackup!.height > _maxDisplayDimension) {
+        final scale = math.min(
+          _maxDisplayDimension / _originalBackup!.width,
+          _maxDisplayDimension / _originalBackup!.height,
+        );
+        _baseDisplayImage = img.copyResize(_originalBackup!,
+          width: (_originalBackup!.width * scale).round(),
+          height: (_originalBackup!.height * scale).round(),
+        );
+      }
+    }
+    final fullRect = Rect.fromLTWH(0, 0, _baseDisplayImage!.width.toDouble(), _baseDisplayImage!.height.toDouble());
+    setState(() {
+      _brightness = 1.0;
+      _contrast = 1.0;
+      _saturation = 1.0;
+      _rotation = 0;
+      _cropRect = fullRect;
+      _activeHandle = null;
+    });
+    _rebuildFromBase();
+    _resetZoom();
+  }
+
+  /// ── NEU: Nur Regler auf Standardwerte setzen, Bild NICHT ändern ──
+  /// Dieser Button setzt Helligkeit/Kontrast/Sättigung auf 1.0 zurück,
+  /// aber behält Rotation und Crop des aktuellen Bearbeitungsstands.
+  void _resetSlidersOnly() {
+    setState(() {
+      _brightness = 1.0;
+      _contrast = 1.0;
+      _saturation = 1.0;
+    });
+    _debounceTimer?.cancel();
+    _pendingUpdate = false;
+    _rebuildDisplay();
+    _hasChanges = true;
+    if (mounted) setState(() {});
+  }
+
   /// Speichert ALLES (Crop + Anpassungen) in die ORIGINALDATEI.
-  /// Erst per Isolate (Hintergrund-Thread), bei Fehler Fallback auf Main-Thread.
   Future<void> _saveAndExit() async {
     if (_originalImage == null || _isSaving) return;
 
@@ -324,7 +421,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     });
 
     try {
-      // 1. Original-Bytes laden
       final originalBytes = await File(widget.originalPath).readAsBytes();
       final saveParams = _SaveParams(
         originalBytes: originalBytes,
@@ -340,7 +436,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         originalPath: widget.originalPath,
       );
 
-      // 2. Versuch per Isolate (nicht-blockierend)
       _SaveResult result;
       try {
         result = await Isolate.run(() => _saveInBackground(saveParams))
@@ -352,7 +447,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
       if (mounted) {
         if (result.success) {
-          await _saveSettingsForImage(); // Einstellungen persistent speichern
+          await _saveSettingsForImage();
           // ignore: use_build_context_synchronously
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Bild gespeichert!')));
           // ignore: use_build_context_synchronously
@@ -373,15 +468,13 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// Crop-Mode toggeln. Beim Beenden wird das Bild permanent gecropped.
+  /// Crop-Mode toggeln.
   void _toggleCropMode() {
     if (!_isCropMode) {
-      // Crop-Mode starten
       setState(() {
         _isCropMode = true;
       });
     } else {
-      // Crop-Mode beenden -> Bild PERMANENT croppen
       _applyCropToBaseImage();
       setState(() {
         _isCropMode = false;
@@ -395,59 +488,24 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     if (_baseDisplayImage == null || _cropRect.isEmpty) return;
     if (_displayWidth == 0 || _displayHeight == 0) return;
 
-    // Crop-Rect auf Base-Image Koordinaten (1:1 da Base = Display)
     final x = _cropRect.left.floor().clamp(0, _baseDisplayImage!.width);
     final y = _cropRect.top.floor().clamp(0, _baseDisplayImage!.height);
     final w = _cropRect.width.floor().clamp(1, _baseDisplayImage!.width - x);
     final h = _cropRect.height.floor().clamp(1, _baseDisplayImage!.height - y);
 
     _baseDisplayImage = img.copyCrop(_baseDisplayImage!, x: x, y: y, width: w, height: h);
-    _rebuildDisplay(); // aktualisiert _displayWidth/_displayHeight
+    _rebuildDisplay();
     _cropRect = Rect.fromLTWH(0, 0, _displayWidth.toDouble(), _displayHeight.toDouble());
     _hasChanges = true;
   }
 
-  /// Setzt ALLES auf Original zurück (Backup wiederherstellen).
-  void _resetToOriginal() {
-    if (_originalBackup != null) {
-      // Original-Backup wiederherstellen
-      _baseDisplayImage = img.Image.from(_originalBackup!);
-      if (_originalBackup!.width > _maxDisplayDimension || _originalBackup!.height > _maxDisplayDimension) {
-        final scale = math.min(
-          _maxDisplayDimension / _originalBackup!.width,
-          _maxDisplayDimension / _originalBackup!.height,
-        );
-        _baseDisplayImage = img.copyResize(_originalBackup!,
-          width: (_originalBackup!.width * scale).round(),
-          height: (_originalBackup!.height * scale).round(),
-        );
-      }
-    }
-    // Crop-Rect auf VOLLES Bild setzen
-    final fullRect = Rect.fromLTWH(0, 0, _baseDisplayImage!.width.toDouble(), _baseDisplayImage!.height.toDouble());
-    setState(() {
-      _brightness = 1.0;
-      _contrast = 1.0;
-      _saturation = 1.0;
-      _rotation = 0;
-      _cropRect = fullRect;
-      _activeHandle = null;
-    });
-    _rebuildFromBase();
-  }
-
-  /// Crop-Handle Hit-Test.
-  /// Pan-Start für Crop-Handles.
   void _onPanStart(PointerDownEvent d) {
     if (!_isCropMode) return;
-    // d.localPosition ist bereits relativ zum Listener (= Bildbereich)
     _activeHandle = _hitTestHandleScreen(d.localPosition);
   }
 
-  /// Pan-Update für Crop-Handles.
   void _onPanUpdate(PointerMoveEvent d) {
     if (!_isCropMode || _activeHandle == null) return;
-    // Bildschirmkoordinaten → Bildpixel-Koordinaten
     final s = _renderScale > 0 ? _renderScale : 1.0;
     final imgPos = Offset(d.localPosition.dx / s, d.localPosition.dy / s);
     setState(() {
@@ -460,8 +518,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _activeHandle = null;
   }
 
-  /// Prüft, ob eine Bildschirmposition (relativ zum Bild-Listener) einen Handle trifft.
-  /// Handles werden in Bildschirm-Pixeln verglichen (= Bildpixel × _renderScale).
   _DragHandle? _hitTestHandleScreen(Offset screenLocal) {
     if (!_isCropMode || _renderScale <= 0) return null;
     final s = _renderScale;
@@ -483,7 +539,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     return null;
   }
 
-  /// Vergrößert/verkleinert das Crop-Rechteck am Handle.
   Rect _resizeRect(Rect rect, _DragType type, Offset pos) {
     double left = rect.left, top = rect.top, right = rect.right, bottom = rect.bottom;
     switch (type) {
@@ -496,7 +551,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       case _DragType.left: left = pos.dx; break;
       case _DragType.right: right = pos.dx; break;
     }
-    // Clamping & Mindestgröße - NUR innerhalb des Bildes!
     left = left.clamp(0.0, _displayWidth - 20.0).toDouble();
     right = right.clamp(left + 20.0, _displayWidth.toDouble()).toDouble();
     top = top.clamp(0.0, _displayHeight - 20.0).toDouble();
@@ -504,7 +558,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     return Rect.fromLTRB(left, top, right, bottom);
   }
 
-  /// Bestätigung beim Schließen mit ungespeicherten Änderungen.
   Future<bool> _onWillPop() async {
     if (!_hasChanges) return true;
     final result = await showDialog<bool>(
@@ -547,8 +600,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
               if (_isLoading)
                 const Center(child: CircularProgressIndicator())
               else
-                // LayoutBuilder passt das Bild an die verfügbare Fläche an,
-                // damit der Crop-Rahmen nie außerhalb des Bildschirms liegt.
                 Positioned.fill(
                   child: _displayBytes == null || _displayWidth == 0 || _displayHeight == 0
                       ? const SizedBox.shrink()
@@ -564,11 +615,15 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                             final double fitH = imgH * scale;
                             final double offsetX = (constraints.maxWidth - fitW) / 2;
                             final double offsetY = (constraints.maxHeight - fitH) / 2;
-                            // Skalierungsfaktor für Koordinaten-Umrechnung speichern
                             _renderScale = scale;
+                            _fitWidth = fitW;
+                            _fitHeight = fitH;
+                            _containerWidth = constraints.maxWidth;
+                            _containerHeight = constraints.maxHeight;
                             return Stack(
                               children: [
-                                // Bild – mit Zoom/Pan wenn NICHT im Crop-Mode
+                                // ── FIX: InteractiveViewer bekommt jetzt den initialisierten
+                                // _zoomController übergeben, Zoom/Pan funktioniert korrekt ──
                                 Positioned(
                                   left: offsetX, top: offsetY,
                                   width: fitW, height: fitH,
@@ -580,8 +635,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                         )
                                       : InteractiveViewer(
                                           panEnabled: true,
-                                          minScale: 0.5,
+                                          minScale: 0.3,
                                           maxScale: 4.0,
+                                          transformationController: _zoomController,
                                           child: Image.memory(
                                             _displayBytes!,
                                             fit: BoxFit.fill,
@@ -589,9 +645,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                           ),
                                         ),
                                 ),
-                                // Crop-Overlay – exakt über dem skalierten Bild,
-                                // AUSSERHALB des InteractiveViewer damit Koordinaten
-                                // immer zum sichtbaren Bild passen.
+                                // Crop-Overlay
                                 if (_isCropMode)
                                   Positioned(
                                     left: offsetX, top: offsetY,
@@ -604,7 +658,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                       child: CustomPaint(
                                         size: Size(fitW, fitH),
                                         painter: _CropPainter(
-                                          // Crop-Rect von Bildpixeln → Bildschirmpixel
                                           cropRect: Rect.fromLTWH(
                                             _cropRect.left * scale,
                                             _cropRect.top * scale,
@@ -717,17 +770,57 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(color: _istDunkel ? Colors.grey.shade600 : Colors.grey.shade400, borderRadius: BorderRadius.circular(2))),
         Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Wrap(spacing: 12, runSpacing: 12, children: [
+
+          // ── Zoom-Steuerung ──
+          // "Herauszoomen mit Rahmen" – das Bild wird kleiner angezeigt,
+          // sodass ein sichtbarer Rahmen rundherum entsteht (Galerie-App-Stil).
+          IconButton(
+            icon: const Icon(Icons.zoom_out_map, color: Colors.blueAccent),
+            onPressed: _isSaving ? null : () {
+              final zoomOut = _zoomOutScale(_fitWidth, _fitHeight, _containerWidth, _containerHeight);
+              _zoomToFit(zoomOut);
+            },
+            tooltip: _getLabelText('zoom_out'),
+          ),
+          // "An Bild anpassen" – Standard-Zoom, Bild füllt den Bildschirm
+          IconButton(
+            icon: const Icon(Icons.fit_screen, color: Colors.blueAccent),
+            onPressed: _isSaving ? null : () => _zoomToFit(1.0),
+            tooltip: _getLabelText('fit_to_screen'),
+          ),
+          // "Zoom zurücksetzen" – Identity-Matrix (entspricht "An Bild anpassen")
+          IconButton(
+            icon: const Icon(Icons.zoom_out_map_outlined, color: Colors.blueAccent),
+            onPressed: _isSaving ? null : _resetZoom,
+            tooltip: _getLabelText('reset_zoom'),
+          ),
+          const VerticalDivider(thickness: 1),
+
+          // Bildanpassung
           _buildSlider('brightness', Icons.wb_sunny_outlined, _brightness, _onBrightnessChanged, settings),
           _buildSlider('contrast', Icons.contrast_outlined, _contrast, _onContrastChanged, settings),
           _buildSlider('saturation', Icons.color_lens_outlined, _saturation, _onSaturationChanged, settings),
           const VerticalDivider(thickness: 1),
+
           IconButton(icon: const Icon(Icons.rotate_left), onPressed: _isSaving ? null : _rotateLeft, tooltip: _getLabelText('rotate_left')),
           IconButton(icon: const Icon(Icons.rotate_right), onPressed: _isSaving ? null : _rotateRight, tooltip: _getLabelText('rotate_right')),
           const VerticalDivider(thickness: 1),
+
+          // ── FIX: "Zurücksetzen" = nur Regler auf Standard ──
+          // Das allererste Original-Bild bleibt erhalten.
+          IconButton(
+            icon: const Icon(Icons.tune_outlined, color: Colors.orangeAccent),
+            onPressed: _isSaving ? null : _resetSlidersOnly,
+            tooltip: _getLabelText('reset_all'),
+          ),
+
+          // ── FIX: "Original herstellen" = Backup-Bild wiederherstellen ──
+          // Stellt das allererste geladene Originalbild (vor jeder Bearbeitung)
+          // wieder her und setzt alle Regler auf Standard zurück.
           IconButton(
             icon: const Icon(Icons.restore, color: Colors.redAccent),
             onPressed: _isSaving ? null : _resetToOriginal,
-            tooltip: _getLabelText('reset_all'),
+            tooltip: _getLabelText('reset_to_original'),
           ),
         ])),
       ])),
@@ -780,11 +873,9 @@ class _SaveResult {
 /// Läuft im ISOLATE (Hintergrund-Thread) - UI blockiert NICHT!
 _SaveResult _saveInBackground(_SaveParams p) {
   try {
-    // 1. Original dekodieren
     final img.Image? original = img.decodeImage(p.originalBytes);
     if (original == null) return const _SaveResult(success: false, error: 'Bild nicht decodierbar');
 
-    // 2. Anpassungen anwenden
     img.Image finalImage = img.Image.from(original);
     if (p.rotation == 90) {
       finalImage = img.copyRotate(finalImage, angle: 90);
@@ -795,7 +886,6 @@ _SaveResult _saveInBackground(_SaveParams p) {
     }
     finalImage = img.adjustColor(finalImage, brightness: p.brightness, contrast: p.contrast, saturation: p.saturation);
 
-    // 3. Crop auf Original-Koordinaten umrechnen & anwenden
     if (!p.cropRect.isEmpty && p.displayWidth > 0 && p.displayHeight > 0) {
       final scaleX = p.originalWidth / p.displayWidth;
       final scaleY = p.originalHeight / p.displayHeight;
@@ -808,7 +898,6 @@ _SaveResult _saveInBackground(_SaveParams p) {
       finalImage = img.copyCrop(finalImage, x: origX, y: origY, width: origW, height: origH);
     }
 
-    // 4. IN ORIGINALDATEI überschreiben
     final outBytes = Uint8List.fromList(img.encodeJpg(finalImage, quality: 95));
     File(p.originalPath).writeAsBytesSync(outBytes);
 
@@ -838,7 +927,6 @@ class _CropPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Dunkel-Overlay außerhalb Crop
     final darkPaint = Paint()..style = PaintingStyle.fill
       ..color = brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.5);
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, cropRect.top), darkPaint);
@@ -846,14 +934,12 @@ class _CropPainter extends CustomPainter {
     canvas.drawRect(Rect.fromLTWH(0, cropRect.top, cropRect.left, cropRect.height), darkPaint);
     canvas.drawRect(Rect.fromLTWH(cropRect.right, cropRect.top, size.width - cropRect.right, cropRect.height), darkPaint);
 
-    // Crop-Rahmen
     final borderPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..color = Colors.white;
     canvas.drawRect(cropRect, borderPaint);
 
-    // Gitternetz (Drittel-Regel)
     final gridPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.5
@@ -864,7 +950,6 @@ class _CropPainter extends CustomPainter {
       canvas.drawLine(Offset(cropRect.left, cropRect.top + i * h3), Offset(cropRect.right, cropRect.top + i * h3), gridPaint);
     }
 
-    // Handles (Ecken + Mitte Kanten)
     final handlePaint = Paint()..color = Colors.white ..style = PaintingStyle.fill;
     final handleBorder = Paint()..color = Colors.cyan ..style = PaintingStyle.stroke ..strokeWidth = 2;
     final handles = [
@@ -889,16 +974,12 @@ class _CropPainter extends CustomPainter {
 // einem Speichern automatisch neu geladen wird.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Ergebnis, das nach einer Bildbearbeitung an den Aufrufer zurückgegeben wird.
 class BildVollbildResult {
   const BildVollbildResult();
 }
 
 class BildVollbildScreen extends StatefulWidget {
   final String bildPfad;
-
-  /// Wird nach einer erfolgreichen Bearbeitung aufgerufen, damit der Aufrufer
-  /// z. B. seine Thumbnail-Liste aktualisieren kann.
   final VoidCallback? onImageEdited;
 
   const BildVollbildScreen({
@@ -912,8 +993,38 @@ class BildVollbildScreen extends StatefulWidget {
 }
 
 class _BildVollbildScreenState extends State<BildVollbildScreen> {
-  /// Erhöhen erzwingt Flutter ein neues Widget (neuer Key → Cache verworfen).
   int _version = 0;
+
+  /// ── FIX: Zuverlässiges Cache-Leeren nach einer Bearbeitung ──
+  /// Drei Schritte:
+  /// 1. FileImage aus dem PaintingBinding-Cache entfernen
+  /// 2. Den gesamten Image-Cache leeren (sicherste Methode)
+  /// 3. Version erhöhen → neuer Key → Flutter lädt Bild neu
+  void _evictImageCache(String path) {
+    try {
+      if (!path.startsWith('http')) {
+        final file = File(path);
+        if (file.existsSync()) {
+          // Spezifischen FileImage-Cache-Eintrag entfernen
+          PaintingBinding.instance.imageCache.evict(FileImage(file));
+          // Zusätzlich den gesamten Cache leeren, um sicherzustellen
+          // dass keine gecachten Versionen des Bildes übrigbleiben
+          PaintingBinding.instance.imageCache.clear();
+          PaintingBinding.instance.imageCache.clearLiveImages();
+        }
+      } else {
+        PaintingBinding.instance.imageCache.evict(NetworkImage(path));
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+      }
+    } catch (e) {
+      debugPrint('Cache evict failed: $e');
+      // Fallback: Gesamten Cache leeren
+      try {
+        PaintingBinding.instance.imageCache.clear();
+      } catch (_) {}
+    }
+  }
 
   Future<void> _oeffneEditor() async {
     if (widget.bildPfad.startsWith('http')) return;
@@ -930,9 +1041,11 @@ class _BildVollbildScreenState extends State<BildVollbildScreen> {
     );
 
     if (result != null && mounted) {
-      // Eigenen Counter erhöhen → Vollbild-Bild wird neu geladen
+      // ── FIX: Cache vollständig leeren + Version erhöhen ──
+      // Ohne vollständiges Cache-Leeren zeigt Flutter manchmal noch
+      // die alte Version des Bildes, auch wenn die Datei schon neu ist.
+      _evictImageCache(widget.bildPfad);
       setState(() => _version++);
-      // Eltern-Widget informieren (z. B. für Thumbnail-Update)
       widget.onImageEdited?.call();
     }
   }
@@ -951,11 +1064,13 @@ class _BildVollbildScreenState extends State<BildVollbildScreen> {
         key: ValueKey('${widget.bildPfad}_$_version'),
       );
     } else {
+      // ── FIX: gaplessPlayback: false damit beim Versionswechsel das neue
+      // Bild korrekt geladen wird, ohne das alte zu "überblenden" ──
       bild = Image.file(
         File(widget.bildPfad),
         fit: BoxFit.contain,
         key: ValueKey('${widget.bildPfad}_$_version'),
-        gaplessPlayback: true,
+        gaplessPlayback: false,
       );
     }
 
@@ -968,7 +1083,7 @@ class _BildVollbildScreenState extends State<BildVollbildScreen> {
             Positioned.fill(
               child: InteractiveViewer(
                 panEnabled: true,
-                minScale: 0.5,
+                minScale: 0.3,
                 maxScale: 4.0,
                 child: bild,
               ),

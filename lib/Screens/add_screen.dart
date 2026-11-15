@@ -521,93 +521,13 @@ class _AddScreenState extends State<AddScreen> {
   void _zeigeBildVollbild(String bildPfad) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (ctx) {
-          final bool istDunkel = Theme.of(ctx).brightness == Brightness.dark;
-          final Color kreisFarbe = istDunkel ? Colors.black : Colors.white;
-          final Color kreuzFarbe = istDunkel ? Colors.white : Colors.black;
-
-          return AnnotatedRegion<SystemUiOverlayStyle>(
-            value: istDunkel ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
-            child: Scaffold(
-              backgroundColor: istDunkel ? Colors.black : Colors.white,
-              body: Stack(
-                children: [
-                  Positioned.fill(
-                    child: InteractiveViewer(
-                      panEnabled: true,
-                      minScale: 0.5,
-                      maxScale: 4.0,
-                      child: (kIsWeb || bildPfad.startsWith('http'))
-                          ? Image.network(bildPfad, fit: BoxFit.contain, key: ValueKey('${bildPfad}_${_imageVersions[bildPfad] ?? 0}'))
-                          : Image.file(File(bildPfad), fit: BoxFit.contain, key: ValueKey('${bildPfad}_${_imageVersions[bildPfad] ?? 0}')),
-                    ),
-                  ),
-                  // --- Ganz links: Schließen-Button ---
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    child: SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Material(
-                          color: kreisFarbe,
-                          elevation: 3,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: () => Navigator.of(ctx).pop(),
-                            child: Padding(
-                              padding: const EdgeInsets.all(10),
-                              child: Icon(Icons.close, size: 28, color: kreuzFarbe),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // --- Ganz rechts: Bearbeiten-Button (Stift) ---
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Material(
-                          color: kreisFarbe,
-                          elevation: 3,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: () async {
-                              if (!bildPfad.startsWith('http')) {
-                                final result = await Navigator.of(ctx).push(
-                                  MaterialPageRoute(
-                                    builder: (ctx2) => EditScreen(
-                                      imageDataPath: bildPfad,
-                                      originalPath: bildPfad,
-                                    ),
-                                  ),
-                                );
-                                if (result != null && mounted) {
-                                  // Version erhöhen für Cache-Busting
-                                  _incrementImageVersion(bildPfad);
-                                }
-                              }
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Icon(Icons.edit, size: 24, color: kreuzFarbe),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+        builder: (ctx) => BildVollbildScreen(
+          bildPfad: bildPfad,
+          onImageEdited: () {
+            // Cache evictieren für alle Thumbnails dieses Bildes
+            _incrementImageVersion(bildPfad);
+          },
+        ),
       ),
     );
   }

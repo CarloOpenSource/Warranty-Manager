@@ -423,6 +423,7 @@ const Map<String, String> translationsFr = {
   'rotate_right': 'Pivoter à droite',
   'reset': 'Réinitialiser',
   'reset_all': 'Tout réinitialiser',
+  'reset_to_original': 'Restaurer l\'original',
   'save_crop': 'Enregistré',
   'crop_hint': 'Touchez et glissez pour découper',
   'cropping': 'Découpage...',
@@ -435,5 +436,7 @@ const Map<String, String> translationsFr = {
   'discard_changes_title': 'Ignorer les modifications?',
   'discard_changes_desc': 'Vous avez des modifications non sauvegardées. Voulez-vous les ignorer?',
   'discard': 'Ignorer',
+  'fit_to_screen': 'Ajuster à l\'écran',
+  'reset_zoom': 'Réinitialiser le zoom',
   'crop_done': 'Terminé',
 };
