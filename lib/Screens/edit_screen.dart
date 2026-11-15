@@ -10,18 +10,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../Services/settings_provider.dart';
 
-/// Professioneller Bild-Editor (wie Galerie-Apps):
-/// - Freier Crop mit ziehbaren Ecken/Rändern NUR auf dem Bild
-/// - Debounced Slider für flüssige Performance
-/// - Buttons: Links Schließen, Rechts Speichern
-/// - **Speichert IN DIE ORIGINALDATEI** (globale Aktualisierung)
-/// - **Isolate für schweres Speichern** (kein UI-Lag)
-/// - Persistente Einstellungen pro Bild
-/// - **Backup der Originaldatei beim ersten Laden** - Reset stellt Original wieder her
-/// - Rotation 0, 90, 180, 270 Grad
-/// - Crop NUR auf dem Bildbereich
-/// - Export/Import von Einstellungen
-/// - Zoom mit sichtbarem Rahmen (Galerie-App-Stil)
 class EditScreen extends StatefulWidget {
   final String imageDataPath;
   final String originalPath;
@@ -35,26 +23,22 @@ class EditScreen extends StatefulWidget {
   @override
   State<EditScreen> createState() => _EditScreenState();
 
-  /// Exportiert alle Bearbeitungseinstellungen als JSON-String (für Backup/Import).
   static Future<String?> exportAllSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       const String prefix = 'edit_settings_';
       final settings = <String, dynamic>{};
       for (final key in prefs.getKeys()) {
-        if (key.startsWith(prefix)) {
-          settings[key] = prefs.getString(key);
-        }
+        if (key.startsWith(prefix)) settings[key] = prefs.getString(key);
       }
       if (settings.isEmpty) return null;
       return jsonEncode(settings);
     } catch (e) {
-      debugPrint('EditScreen.exportAllSettings FEHLER: $e');
+      debugPrint('exportAllSettings FEHLER: $e');
       return null;
     }
   }
 
-  /// Importiert Bearbeitungseinstellungen aus JSON-String.
   static Future<void> importSettings(String jsonStr) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -66,7 +50,7 @@ class EditScreen extends StatefulWidget {
         }
       }
     } catch (e) {
-      debugPrint('EditScreen.importSettings FEHLER: $e');
+      debugPrint('importSettings FEHLER: $e');
     }
   }
 }
@@ -74,61 +58,72 @@ class EditScreen extends StatefulWidget {
 class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   bool _istDunkel = true;
 
-  // Crop-Bereich (in Display-Bild-Koordinaten)
+  // ── Crop ──────────────────────────────────────────────────────────────────
   Rect _cropRect = Rect.zero;
   bool _isCropMode = false;
   _DragHandle? _activeHandle;
 
-  // Bildbearbeitungswerte
+  // ── Farbwerte ─────────────────────────────────────────────────────────────
   double _brightness = 1.0;
-  double _contrast = 1.0;
+  double _contrast   = 1.0;
   double _saturation = 1.0;
-  int _rotation = 0; // 0, 90, 180, 270
+  // Rotation existiert nicht mehr als State – wird direkt in _baseDisplayImage
+  // eingebrannt.
 
-  // Ladezustand
-  bool _isLoading = true;
-  bool _isSaving = false;
-
-  // Display-Parameter (max 1024px für flüssige Performance)
-  Uint8List? _displayBytes;
-  int _displayWidth = 0;
-  int _displayHeight = 0;
-  img.Image? _originalImage;
-  img.Image? _baseDisplayImage; // aktuelles Arbeitsbild (rotiert, gecroppt)
-  img.Image? _originalBackup;   // KOPIE des Originalbildes für Reset
-
-  // Track ob Änderungen gemacht wurden
+  // ── Zustand ───────────────────────────────────────────────────────────────
+  bool _isLoading  = true;
+  bool _isSaving   = false;
   bool _hasChanges = false;
 
-  // Skalierungsfaktor: Bildschirmpixel / Display-Bildpixel
-  double _renderScale = 1.0;
+  // ── Display-Puffer ────────────────────────────────────────────────────────
+  Uint8List? _displayBytes;
+  int _displayWidth  = 0;
+  int _displayHeight = 0;
 
-  // Aktuelle Fit-Größen (aus LayoutBuilder) für die Zoom-Steuerung.
-  double _fitWidth = 0.0;
-  double _fitHeight = 0.0;
-  double _containerWidth = 0.0;
-  double _containerHeight = 0.0;
+  // ── Arbeitsbilder ─────────────────────────────────────────────────────────
+  img.Image? _baseDisplayImage;
+  img.Image? _originalBackup;
 
-  // ── FIX: TransformationController wird in initState initialisiert ──
-  // War vorher nie initialisiert (immer null) → _zoomToFit und _resetZoom
-  // haben nichts gemacht, da sie direkt mit "if null return" abgebrochen haben.
+  // ── Layout-Cache ──────────────────────────────────────────────────────────
+  // Wird im LayoutBuilder des Bildbereichs befüllt.
+  // renderScale: wie viele Bildschirm-Pixel entsprechen einem Bild-Pixel
+  double _renderScale     = 1.0;
+  // Offset des Bildes im Vollbild-Container
+  double _imageOffsetX    = 0.0;
+  double _imageOffsetY    = 0.0;
+  // Angezeigte Bildgröße in Bildschirm-Pixeln
+  double _imageFitW       = 0.0;
+  double _imageFitH       = 0.0;
+
+  // ── Zoom ──────────────────────────────────────────────────────────────────
   late final TransformationController _zoomController;
+  // Aktueller Zoom-Faktor (1.0 = Standard)
+  double _currentZoom = 1.0;
 
-  // Debounce Timer für Slider
+  // ── Bottom-Sheet ──────────────────────────────────────────────────────────
+  // Wir verwenden einen einfachen AnimationController-gesteuerten
+  // Slide-In/Out statt DraggableScrollableSheet, da das zuverlässiger mit
+  // bottomNavigationBar und Keyboard interagiert.
+  // _sheetVisible: ob das Sheet sichtbar (nicht ganz eingezogen) ist
+  bool _sheetVisible = true;
+
+  // ── Debounce ──────────────────────────────────────────────────────────────
   Timer? _debounceTimer;
-  bool _pendingUpdate = false;
+  bool   _pendingUpdate = false;
 
-  // Persistente Einstellungen pro Bild
-  static const String _prefsPrefix = 'edit_settings_';
+  // ── Konstanten ────────────────────────────────────────────────────────────
+  static const String   _prefsPrefix         = 'edit_settings_';
+  static const int      _maxDisplayDimension = 1024;
+  static const double   _handleSize          = 28.0;
+  static const Duration _debounceDelay       = Duration(milliseconds: 80);
 
-  static const int _maxDisplayDimension = 1024;
-  static const double _handleSize = 24.0;
-  static const Duration _debounceDelay = Duration(milliseconds: 80);
+  // ─────────────────────────────────────────────────────────────────────────
+  // LIFECYCLE
+  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
-    // ── FIX: Controller hier initialisieren, nicht als nullable lassen ──
     _zoomController = TransformationController();
     WidgetsBinding.instance.addObserver(this);
     _loadImage();
@@ -137,150 +132,125 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final newBrightness = Theme.of(context).brightness == Brightness.dark;
-    if (newBrightness != _istDunkel) {
-      _istDunkel = newBrightness;
-    }
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    if (dark != _istDunkel) _istDunkel = dark;
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
-    // ── FIX: Controller auch in dispose() aufräumen ──
     _zoomController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  /// Hilfsmethode für übersetzte Texte
-  String _getLabelText(String key) {
-    final settings = Provider.of<SettingsProvider>(context, listen: false);
-    return getText(settings.languageCode, key);
+  String _t(String key) {
+    final s = Provider.of<SettingsProvider>(context, listen: false);
+    return getText(s.languageCode, key);
   }
 
-  /// Lädt das Bild und skaliert es auf max 1024px für die Anzeige.
-  /// Erstellt eine KOPIE des Originals für Reset-Funktionalität.
+  // ─────────────────────────────────────────────────────────────────────────
+  // BILD LADEN
+  // ─────────────────────────────────────────────────────────────────────────
+
   Future<void> _loadImage() async {
     setState(() => _isLoading = true);
-
     try {
       final file = File(widget.imageDataPath);
       if (!await file.exists()) {
         throw FileSystemException('Datei nicht gefunden', widget.imageDataPath);
       }
-      final bytes = await file.readAsBytes();
-      _originalImage = img.decodeImage(bytes)!;
+      final bytes   = await file.readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) throw Exception('Bild nicht dekodierbar');
 
-      // BACKUP des Originalbildes erstellen (für Reset)
-      _originalBackup = img.Image.from(_originalImage!);
-
-      // Display-Bild vorbereiten (max 1024px)
-      _baseDisplayImage = _originalImage!;
-      if (_originalImage!.width > _maxDisplayDimension || _originalImage!.height > _maxDisplayDimension) {
-        final scale = math.min(
-          _maxDisplayDimension / _originalImage!.width,
-          _maxDisplayDimension / _originalImage!.height,
+      img.Image work = decoded;
+      if (decoded.width > _maxDisplayDimension ||
+          decoded.height > _maxDisplayDimension) {
+        final s = math.min(
+          _maxDisplayDimension / decoded.width,
+          _maxDisplayDimension / decoded.height,
         );
-        _baseDisplayImage = img.copyResize(_originalImage!,
-          width: (_originalImage!.width * scale).round(),
-          height: (_originalImage!.height * scale).round(),
+        work = img.copyResize(decoded,
+          width:  (decoded.width  * s).round(),
+          height: (decoded.height * s).round(),
         );
       }
 
-      // Gespeicherte Einstellungen für dieses Bild laden
+      _originalBackup   = img.Image.from(work);
+      _baseDisplayImage = work;
+
       await _loadSettingsForImage();
 
-      // Initiales Crop-Rechteck = ganzes Bild
-      _cropRect = Rect.fromLTWH(0, 0, _baseDisplayImage!.width.toDouble(), _baseDisplayImage!.height.toDouble());
+      _cropRect = Rect.fromLTWH(
+        0, 0,
+        _baseDisplayImage!.width.toDouble(),
+        _baseDisplayImage!.height.toDouble(),
+      );
       _rebuildDisplay();
     } catch (e, stack) {
-      debugPrint('EditScreen._loadImage FEHLER: $e\n$stack');
+      debugPrint('_loadImage FEHLER: $e\n$stack');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Fehler beim Laden: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Fehler beim Laden: $e')));
         Navigator.pop(context);
       }
     }
-
     if (mounted) setState(() => _isLoading = false);
   }
 
-  /// Lädt die gespeicherten Bearbeitungseinstellungen für das aktuelle Bild.
+  // ─────────────────────────────────────────────────────────────────────────
+  // EINSTELLUNGEN
+  // ─────────────────────────────────────────────────────────────────────────
+
   Future<void> _loadSettingsForImage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = '$_prefsPrefix${widget.imageDataPath.hashCode}';
-      final jsonStr = prefs.getString(key);
-      if (jsonStr != null) {
-        final data = jsonDecode(jsonStr) as Map<String, dynamic>;
-        _brightness = (data['brightness'] as num?)?.toDouble() ?? 1.0;
-        _contrast = (data['contrast'] as num?)?.toDouble() ?? 1.0;
-        _saturation = (data['saturation'] as num?)?.toDouble() ?? 1.0;
-        _rotation = (data['rotation'] as int?) ?? 0;
-        if (data['cropRect'] != null && _baseDisplayImage != null) {
-          final crop = data['cropRect'] as Map<String, dynamic>;
-          final double imgW = _baseDisplayImage!.width.toDouble();
-          final double imgH = _baseDisplayImage!.height.toDouble();
-          final double left = ((crop['left'] as num?)?.toDouble() ?? 0).clamp(0, imgW - 1);
-          final double top = ((crop['top'] as num?)?.toDouble() ?? 0).clamp(0, imgH - 1);
-          final double width = ((crop['width'] as num?)?.toDouble() ?? imgW).clamp(1, imgW - left);
-          final double height = ((crop['height'] as num?)?.toDouble() ?? imgH).clamp(1, imgH - top);
-          _cropRect = Rect.fromLTWH(left, top, width, height);
-        }
-        _hasChanges = true;
-      }
+      final key   = '$_prefsPrefix${widget.imageDataPath.hashCode}';
+      final str   = prefs.getString(key);
+      if (str == null) return;
+      final data = jsonDecode(str) as Map<String, dynamic>;
+      _brightness = (data['brightness'] as num?)?.toDouble() ?? 1.0;
+      _contrast   = (data['contrast']   as num?)?.toDouble() ?? 1.0;
+      _saturation = (data['saturation'] as num?)?.toDouble() ?? 1.0;
+      _hasChanges = true;
     } catch (e) {
-      debugPrint('EditScreen._loadSettingsForImage FEHLER: $e');
+      debugPrint('_loadSettingsForImage FEHLER: $e');
     }
   }
 
-  /// Speichert die aktuellen Bearbeitungseinstellungen für das aktuelle Bild.
   Future<void> _saveSettingsForImage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = '$_prefsPrefix${widget.imageDataPath.hashCode}';
-      final data = {
-        'brightness': _brightness,
-        'contrast': _contrast,
-        'saturation': _saturation,
-        'rotation': _rotation,
-        'cropRect': {
-          'left': _cropRect.left,
-          'top': _cropRect.top,
-          'width': _cropRect.width,
-          'height': _cropRect.height,
-        },
-        'timestamp': DateTime.now().toIso8601String(),
-      };
-      await prefs.setString(key, jsonEncode(data));
+      final key   = '$_prefsPrefix${widget.imageDataPath.hashCode}';
+      await prefs.setString(key, jsonEncode({
+        'brightness': 1.0,
+        'contrast':   1.0,
+        'saturation': 1.0,
+        'timestamp':  DateTime.now().toIso8601String(),
+      }));
     } catch (e) {
-      debugPrint('EditScreen._saveSettingsForImage FEHLER: $e');
+      debugPrint('_saveSettingsForImage FEHLER: $e');
     }
   }
 
-  /// Baut das Anzeige-Bild aus _baseDisplayImage + Einstellungen.
+  // ─────────────────────────────────────────────────────────────────────────
+  // ANZEIGE AUFBAUEN
+  // ─────────────────────────────────────────────────────────────────────────
+
   void _rebuildDisplay() {
     if (_baseDisplayImage == null) return;
-    final processed = _applySettingsToImage(_baseDisplayImage!);
-    _displayBytes = Uint8List.fromList(img.encodeJpg(processed, quality: 92));
-    _displayWidth = processed.width;
-    _displayHeight = processed.height;
+    final out = img.adjustColor(
+      img.Image.from(_baseDisplayImage!),
+      brightness: _brightness,
+      contrast:   _contrast,
+      saturation: _saturation,
+    );
+    _displayBytes  = Uint8List.fromList(img.encodeJpg(out, quality: 92));
+    _displayWidth  = out.width;
+    _displayHeight = out.height;
   }
 
-  /// Wendet Helligkeit, Kontrast, Sättigung, Rotation an.
-  img.Image _applySettingsToImage(img.Image source) {
-    img.Image image = img.Image.from(source);
-    if (_rotation == 90) {
-      image = img.copyRotate(image, angle: 90);
-    } else if (_rotation == 180) {
-      image = img.copyRotate(image, angle: 180);
-    } else if (_rotation == 270) {
-      image = img.copyRotate(image, angle: 270);
-    }
-    image = img.adjustColor(image, brightness: _brightness, contrast: _contrast, saturation: _saturation);
-    return image;
-  }
-
-  /// Debounced Update für Slider - verhindert Lag.
   void _scheduleDisplayUpdate() {
     _pendingUpdate = true;
     _debounceTimer?.cancel();
@@ -289,240 +259,246 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         _pendingUpdate = false;
         _rebuildDisplay();
         _hasChanges = true;
-        setState(() {}); // nur UI neu zeichnen
+        setState(() {});
       }
     });
   }
 
   void _onBrightnessChanged(double v) { _brightness = v; _scheduleDisplayUpdate(); }
-  void _onContrastChanged(double v) { _contrast = v; _scheduleDisplayUpdate(); }
+  void _onContrastChanged(double v)   { _contrast   = v; _scheduleDisplayUpdate(); }
   void _onSaturationChanged(double v) { _saturation = v; _scheduleDisplayUpdate(); }
 
-  void _rotateLeft() {
-    _rotation = (_rotation + 90) % 360;
+  // ─────────────────────────────────────────────────────────────────────────
+  // ROTATION – PERMANENT EINBRENNEN
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _applyRotation(int angleDeg) {
+    if (_baseDisplayImage == null || _isSaving) return;
     _debounceTimer?.cancel();
     _pendingUpdate = false;
-    _rebuildDisplay();
-    _cropRect = Rect.fromLTWH(0, 0, _displayWidth.toDouble(), _displayHeight.toDouble());
+    _baseDisplayImage = img.copyRotate(_baseDisplayImage!, angle: angleDeg);
+    _cropRect = Rect.fromLTWH(
+      0, 0,
+      _baseDisplayImage!.width.toDouble(),
+      _baseDisplayImage!.height.toDouble(),
+    );
     _hasChanges = true;
+    _rebuildDisplay();
     if (mounted) setState(() {});
   }
 
-  void _rotateRight() {
-    _rotation = (_rotation - 90 + 360) % 360;
-    _debounceTimer?.cancel();
-    _pendingUpdate = false;
-    _rebuildDisplay();
-    _cropRect = Rect.fromLTWH(0, 0, _displayWidth.toDouble(), _displayHeight.toDouble());
-    _hasChanges = true;
-    if (mounted) setState(() {});
-  }
+  void _rotateLeft()  => _applyRotation(90);
+  void _rotateRight() => _applyRotation(-90);
 
-  void _rebuildFromBase() {
-    _debounceTimer?.cancel();
-    _pendingUpdate = false;
-    _rebuildDisplay();
-    _hasChanges = true;
-    if (mounted) setState(() {});
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // CROP
+  // ─────────────────────────────────────────────────────────────────────────
 
-  /// Setzt den Zoom auf die Standard-Ansicht (Bild passt genau in Bildschirm).
-  void _resetZoom() {
+  void _enterCropMode() {
+    // Im Crop-Mode Zoom auf Identity zurücksetzen, damit _renderScale
+    // und die Bild-Offsets exakt stimmen und die Handles korrekt sitzen.
     _zoomController.value = Matrix4.identity();
+    _currentZoom = 1.0;
+    setState(() => _isCropMode = true);
   }
 
-  /// Berechnet den Zoom-Faktor für "Herauszoomen mit Rahmen".
-  /// Bei diesem Zoom ist das Bild von einem sichtbaren Rahmen umgeben,
-  /// wie in einer professionellen Galerie-App.
-  double _zoomOutScale(double fitW, double fitH, double maxWidth, double maxHeight) {
-    const double framePadding = 32.0;
-    final availableWidth = (maxWidth - framePadding * 2).clamp(1.0, maxWidth);
-    final availableHeight = (maxHeight - framePadding * 2).clamp(1.0, maxHeight);
-    final scaleX = availableWidth / fitW;
-    final scaleY = availableHeight / fitH;
-    return math.min(scaleX, scaleY);
-  }
-
-  /// Zoomt auf den angegebenen Faktor (relativ zur Fit-Größe).
-  /// Der InteractiveViewer verwendet seine eigene Transformation, daher wird
-  /// die Matrix direkt gesetzt.
-  void _zoomToFit(double targetScale) {
-    final m = Matrix4.identity();
-    // Skalierung um den Mittelpunkt des Containers
-    if (_containerWidth > 0 && _containerHeight > 0 && _fitWidth > 0 && _fitHeight > 0) {
-      // Offset vom Bildmittelpunkt zur Containermitte berechnen
-      final cx = _containerWidth / 2;
-      final cy = _containerHeight / 2;
-      // Translate → Scale → Translate zurück (Rotation um Mittelpunkt)
-      m
-        ..translate(cx, cy)
-        ..scale(targetScale, targetScale)
-        ..translate(-cx, -cy);
-    } else {
-      m.scale(targetScale, targetScale);
-    }
-    _zoomController.value = m;
-  }
-
-  /// ── FIX: Reset setzt jetzt das allererste Original-Backup wieder her ──
-  /// Der "Zurücksetzen"-Button (restore-Icon, rot) stellt das allererste
-  /// geladene Bild wieder her (vor jeder Bearbeitung).
-  /// Alle Regler werden auf Standard zurückgesetzt.
-  void _resetToOriginal() {
-    if (_originalBackup != null) {
-      _baseDisplayImage = img.Image.from(_originalBackup!);
-      if (_originalBackup!.width > _maxDisplayDimension || _originalBackup!.height > _maxDisplayDimension) {
-        final scale = math.min(
-          _maxDisplayDimension / _originalBackup!.width,
-          _maxDisplayDimension / _originalBackup!.height,
-        );
-        _baseDisplayImage = img.copyResize(_originalBackup!,
-          width: (_originalBackup!.width * scale).round(),
-          height: (_originalBackup!.height * scale).round(),
-        );
-      }
-    }
-    final fullRect = Rect.fromLTWH(0, 0, _baseDisplayImage!.width.toDouble(), _baseDisplayImage!.height.toDouble());
+  void _exitCropMode() {
+    _applyCropToBaseImage();
     setState(() {
-      _brightness = 1.0;
-      _contrast = 1.0;
-      _saturation = 1.0;
-      _rotation = 0;
-      _cropRect = fullRect;
+      _isCropMode   = false;
       _activeHandle = null;
     });
-    _rebuildFromBase();
-    _resetZoom();
   }
 
-  /// ── NEU: Nur Regler auf Standardwerte setzen, Bild NICHT ändern ──
-  /// Dieser Button setzt Helligkeit/Kontrast/Sättigung auf 1.0 zurück,
-  /// aber behält Rotation und Crop des aktuellen Bearbeitungsstands.
+  void _toggleCropMode() {
+    if (!_isCropMode) {
+      _enterCropMode();
+    } else {
+      _exitCropMode();
+    }
+  }
+
+  void _applyCropToBaseImage() {
+    if (_baseDisplayImage == null) return;
+    final bw = _baseDisplayImage!.width;
+    final bh = _baseDisplayImage!.height;
+    final x  = _cropRect.left.floor().clamp(0, bw - 1);
+    final y  = _cropRect.top.floor().clamp(0, bh - 1);
+    final w  = _cropRect.width.floor().clamp(1, bw - x);
+    final h  = _cropRect.height.floor().clamp(1, bh - y);
+    if (!(x == 0 && y == 0 && w == bw && h == bh)) {
+      _baseDisplayImage = img.copyCrop(_baseDisplayImage!,
+        x: x, y: y, width: w, height: h,
+      );
+      _hasChanges = true;
+    }
+    _cropRect = Rect.fromLTWH(
+      0, 0,
+      _baseDisplayImage!.width.toDouble(),
+      _baseDisplayImage!.height.toDouble(),
+    );
+    _rebuildDisplay();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ZOOM  (nur im Normal-Mode, nicht im Crop-Mode)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _resetZoom() {
+    _zoomController.value = Matrix4.identity();
+    _currentZoom = 1.0;
+  }
+
+  /// Setzt den Zoom-Faktor des InteractiveViewers programmatisch.
+  /// Der InteractiveViewer füllt den gesamten verfügbaren Bildbereich.
+  /// Eine einfache Skalierung um den Mittelpunkt reicht aus.
+  void _applyZoom(double targetScale) {
+    // Matrix: Identity skaliert → Bild wird kleiner/größer, bleibt zentriert
+    // weil der InteractiveViewer den ganzen Bereich abdeckt und
+    // BoxFit.contain das Bild von Natur aus zentriert.
+    final m = Matrix4.diagonal3Values(targetScale, targetScale, 1.0);
+    _zoomController.value = m;
+    _currentZoom = targetScale;
+  }
+
+  double _calcZoomOutScale() {
+    // 80% der Standard-Größe → sichtbarer Rahmen rundherum
+    return 0.75;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RESET
+  // ─────────────────────────────────────────────────────────────────────────
+
   void _resetSlidersOnly() {
-    setState(() {
-      _brightness = 1.0;
-      _contrast = 1.0;
-      _saturation = 1.0;
-    });
     _debounceTimer?.cancel();
     _pendingUpdate = false;
+    setState(() {
+      _brightness = 1.0;
+      _contrast   = 1.0;
+      _saturation = 1.0;
+    });
     _rebuildDisplay();
     _hasChanges = true;
     if (mounted) setState(() {});
   }
 
-  /// Speichert ALLES (Crop + Anpassungen) in die ORIGINALDATEI.
-  Future<void> _saveAndExit() async {
-    if (_originalImage == null || _isSaving) return;
-
+  void _resetToOriginal() {
+    if (_originalBackup == null) return;
+    _debounceTimer?.cancel();
+    _pendingUpdate = false;
+    _baseDisplayImage = img.Image.from(_originalBackup!);
+    _cropRect = Rect.fromLTWH(
+      0, 0,
+      _baseDisplayImage!.width.toDouble(),
+      _baseDisplayImage!.height.toDouble(),
+    );
+    _rebuildDisplay();
+    _resetZoom();
     setState(() {
-      _isSaving = true;
-      _isCropMode = false;
+      _brightness   = 1.0;
+      _contrast     = 1.0;
+      _saturation   = 1.0;
+      _isCropMode   = false;
+      _activeHandle = null;
+      _hasChanges   = true;
     });
+  }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // SPEICHERN
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<void> _saveAndExit() async {
+    if (_baseDisplayImage == null || _isSaving) return;
+    if (_isCropMode) {
+      _applyCropToBaseImage();
+      setState(() { _isCropMode = false; _activeHandle = null; });
+    }
+    setState(() => _isSaving = true);
     try {
-      final originalBytes = await File(widget.originalPath).readAsBytes();
-      final saveParams = _SaveParams(
-        originalBytes: originalBytes,
-        originalWidth: _originalImage!.width,
-        originalHeight: _originalImage!.height,
-        displayWidth: _displayWidth,
-        displayHeight: _displayHeight,
-        cropRect: _cropRect,
-        brightness: _brightness,
-        contrast: _contrast,
-        saturation: _saturation,
-        rotation: _rotation,
-        originalPath: widget.originalPath,
+      final baseBytes = Uint8List.fromList(
+        img.encodeJpg(_baseDisplayImage!, quality: 100),
       );
-
+      final params = _SaveParams(
+        baseImageBytes: baseBytes,
+        brightness:     _brightness,
+        contrast:       _contrast,
+        saturation:     _saturation,
+        originalPath:   widget.originalPath,
+      );
       _SaveResult result;
       try {
-        result = await Isolate.run(() => _saveInBackground(saveParams))
-            .timeout(const Duration(seconds: 10));
+        result = await Isolate.run(() => _saveInBackground(params))
+            .timeout(const Duration(seconds: 15));
       } catch (e) {
-        debugPrint('Isolate fehlgeschlagen, Fallback auf Main-Thread: $e');
-        result = _saveInBackground(saveParams);
+        debugPrint('Isolate-Fallback: $e');
+        result = _saveInBackground(params);
       }
-
       if (mounted) {
         if (result.success) {
           await _saveSettingsForImage();
           // ignore: use_build_context_synchronously
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Bild gespeichert!')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ Bild gespeichert!')),
+          );
           // ignore: use_build_context_synchronously
           Navigator.pop(context, widget.originalPath);
         } else {
           // ignore: use_build_context_synchronously
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Fehler: ${result.error}')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('❌ Fehler: ${result.error}')),
+          );
           setState(() => _isSaving = false);
         }
       }
     } catch (e) {
-      debugPrint('EditScreen._saveAndExit FEHLER: $e');
+      debugPrint('_saveAndExit FEHLER: $e');
       if (mounted) {
         // ignore: use_build_context_synchronously
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Fehler: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Fehler: $e')));
         setState(() => _isSaving = false);
       }
     }
   }
 
-  /// Crop-Mode toggeln.
-  void _toggleCropMode() {
-    if (!_isCropMode) {
-      setState(() {
-        _isCropMode = true;
-      });
-    } else {
-      _applyCropToBaseImage();
-      setState(() {
-        _isCropMode = false;
-        _activeHandle = null;
-      });
-    }
-  }
-
-  /// Wendet den Crop permanent auf das Base-Display-Image an.
-  void _applyCropToBaseImage() {
-    if (_baseDisplayImage == null || _cropRect.isEmpty) return;
-    if (_displayWidth == 0 || _displayHeight == 0) return;
-
-    final x = _cropRect.left.floor().clamp(0, _baseDisplayImage!.width);
-    final y = _cropRect.top.floor().clamp(0, _baseDisplayImage!.height);
-    final w = _cropRect.width.floor().clamp(1, _baseDisplayImage!.width - x);
-    final h = _cropRect.height.floor().clamp(1, _baseDisplayImage!.height - y);
-
-    _baseDisplayImage = img.copyCrop(_baseDisplayImage!, x: x, y: y, width: w, height: h);
-    _rebuildDisplay();
-    _cropRect = Rect.fromLTWH(0, 0, _displayWidth.toDouble(), _displayHeight.toDouble());
-    _hasChanges = true;
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // CROP-DRAG
+  // ─────────────────────────────────────────────────────────────────────────
 
   void _onPanStart(PointerDownEvent d) {
     if (!_isCropMode) return;
-    _activeHandle = _hitTestHandleScreen(d.localPosition);
+    // Pointer-Position relativ zum Bild-Offset umrechnen
+    final localInImage = Offset(
+      d.localPosition.dx - _imageOffsetX,
+      d.localPosition.dy - _imageOffsetY,
+    );
+    _activeHandle = _hitTestHandle(localInImage);
   }
 
   void _onPanUpdate(PointerMoveEvent d) {
     if (!_isCropMode || _activeHandle == null) return;
     final s = _renderScale > 0 ? _renderScale : 1.0;
-    final imgPos = Offset(d.localPosition.dx / s, d.localPosition.dy / s);
+    // Pointer relativ zum Bild-Offset → in Bildpixel-Koordinaten
+    final localInImage = Offset(
+      d.localPosition.dx - _imageOffsetX,
+      d.localPosition.dy - _imageOffsetY,
+    );
+    final imgPos = Offset(localInImage.dx / s, localInImage.dy / s);
     setState(() {
       _cropRect = _resizeRect(_cropRect, _activeHandle!.type, imgPos);
       _hasChanges = true;
     });
   }
 
-  void _onPanEnd(_) {
-    _activeHandle = null;
-  }
+  void _onPanEnd(_) => _activeHandle = null;
 
-  _DragHandle? _hitTestHandleScreen(Offset screenLocal) {
-    if (!_isCropMode || _renderScale <= 0) return null;
+  _DragHandle? _hitTestHandle(Offset localInImage) {
+    if (_renderScale <= 0) return null;
     final s = _renderScale;
     final r = _cropRect;
-    final List<({_DragType type, Offset pos})> handles = [
+    final handles = <({_DragType type, Offset pos})>[
       (type: _DragType.topLeft,     pos: Offset(r.left * s,      r.top * s)),
       (type: _DragType.topRight,    pos: Offset(r.right * s,     r.top * s)),
       (type: _DragType.bottomLeft,  pos: Offset(r.left * s,      r.bottom * s)),
@@ -533,46 +509,62 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       (type: _DragType.right,       pos: Offset(r.right * s,     r.center.dy * s)),
     ];
     for (final h in handles) {
-      final hitRect = Rect.fromCenter(center: h.pos, width: _handleSize, height: _handleSize);
-      if (hitRect.contains(screenLocal)) return _DragHandle(h.type, h.pos);
+      if (Rect.fromCenter(center: h.pos, width: _handleSize, height: _handleSize)
+              .contains(localInImage)) {
+        return _DragHandle(h.type, h.pos);
+      }
     }
     return null;
   }
 
-  Rect _resizeRect(Rect rect, _DragType type, Offset pos) {
-    double left = rect.left, top = rect.top, right = rect.right, bottom = rect.bottom;
-    switch (type) {
-      case _DragType.topLeft: left = pos.dx; top = pos.dy; break;
-      case _DragType.topRight: right = pos.dx; top = pos.dy; break;
-      case _DragType.bottomLeft: left = pos.dx; bottom = pos.dy; break;
-      case _DragType.bottomRight: right = pos.dx; bottom = pos.dy; break;
-      case _DragType.top: top = pos.dy; break;
-      case _DragType.bottom: bottom = pos.dy; break;
-      case _DragType.left: left = pos.dx; break;
-      case _DragType.right: right = pos.dx; break;
+  Rect _resizeRect(Rect r, _DragType t, Offset p) {
+    double l = r.left, top = r.top, ri = r.right, b = r.bottom;
+    switch (t) {
+      case _DragType.topLeft:     l = p.dx; top = p.dy; break;
+      case _DragType.topRight:    ri = p.dx; top = p.dy; break;
+      case _DragType.bottomLeft:  l = p.dx; b = p.dy;   break;
+      case _DragType.bottomRight: ri = p.dx; b = p.dy;  break;
+      case _DragType.top:    top = p.dy; break;
+      case _DragType.bottom: b   = p.dy; break;
+      case _DragType.left:   l   = p.dx; break;
+      case _DragType.right:  ri  = p.dx; break;
     }
-    left = left.clamp(0.0, _displayWidth - 20.0).toDouble();
-    right = right.clamp(left + 20.0, _displayWidth.toDouble()).toDouble();
-    top = top.clamp(0.0, _displayHeight - 20.0).toDouble();
-    bottom = bottom.clamp(top + 20.0, _displayHeight.toDouble()).toDouble();
-    return Rect.fromLTRB(left, top, right, bottom);
+    l   = l.clamp(0.0, _displayWidth  - 20.0);
+    ri  = ri.clamp(l + 20.0, _displayWidth.toDouble());
+    top = top.clamp(0.0, _displayHeight - 20.0);
+    b   = b.clamp(top + 20.0, _displayHeight.toDouble());
+    return Rect.fromLTRB(l, top, ri, b);
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ZURÜCK
+  // ─────────────────────────────────────────────────────────────────────────
 
   Future<bool> _onWillPop() async {
     if (!_hasChanges) return true;
-    final result = await showDialog<bool>(
+    final r = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text(_getLabelText('discard_changes_title')),
-        content: Text(_getLabelText('discard_changes_desc')),
+        title: Text(_t('discard_changes_title')),
+        content: Text(_t('discard_changes_desc')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(_getLabelText('cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(_getLabelText('discard'))),
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: Text(_t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: Text(_t('discard')),
+          ),
         ],
       ),
     );
-    return result ?? false;
+    return r ?? false;
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // BUILD
+  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -581,10 +573,10 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
+      onPopInvokedWithResult: (didPop, _) async {
         if (!didPop) {
-          final shouldPop = await _onWillPop();
-          if (shouldPop && mounted) {
+          final ok = await _onWillPop();
+          if (ok && mounted) {
             // ignore: use_build_context_synchronously
             Navigator.pop(context);
           }
@@ -594,384 +586,713 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         value: _istDunkel ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
         child: Scaffold(
           backgroundColor: _istDunkel ? Colors.black : Colors.white,
-          body: Stack(
+          // Kein bottomNavigationBar – das Sheet liegt direkt im Stack
+          body: Column(
             children: [
-              // --- Hauptbildbereich ---
-              if (_isLoading)
-                const Center(child: CircularProgressIndicator())
-              else
-                Positioned.fill(
-                  child: _displayBytes == null || _displayWidth == 0 || _displayHeight == 0
-                      ? const SizedBox.shrink()
-                      : LayoutBuilder(
-                          builder: (ctx, constraints) {
-                            final double imgW = _displayWidth.toDouble();
-                            final double imgH = _displayHeight.toDouble();
-                            final double scale = math.min(
-                              constraints.maxWidth / imgW,
-                              constraints.maxHeight / imgH,
-                            );
-                            final double fitW = imgW * scale;
-                            final double fitH = imgH * scale;
-                            final double offsetX = (constraints.maxWidth - fitW) / 2;
-                            final double offsetY = (constraints.maxHeight - fitH) / 2;
-                            _renderScale = scale;
-                            _fitWidth = fitW;
-                            _fitHeight = fitH;
-                            _containerWidth = constraints.maxWidth;
-                            _containerHeight = constraints.maxHeight;
-                            return Stack(
-                              children: [
-                                // ── FIX: InteractiveViewer bekommt jetzt den initialisierten
-                                // _zoomController übergeben, Zoom/Pan funktioniert korrekt ──
-                                Positioned(
-                                  left: offsetX, top: offsetY,
-                                  width: fitW, height: fitH,
-                                  child: _isCropMode
-                                      ? Image.memory(
-                                          _displayBytes!,
-                                          fit: BoxFit.fill,
-                                          gaplessPlayback: true,
-                                        )
-                                      : InteractiveViewer(
-                                          panEnabled: true,
-                                          minScale: 0.3,
-                                          maxScale: 4.0,
-                                          transformationController: _zoomController,
-                                          child: Image.memory(
+              // ── Bildbereich ──────────────────────────────────────────
+              Expanded(
+                child: Stack(
+                  children: [
+                    // Vollflächiges Bild mit Zoom/Pan
+                    if (_isLoading)
+                      const Center(child: CircularProgressIndicator())
+                    else
+                      Positioned.fill(
+                        child: (_displayBytes == null ||
+                                _displayWidth == 0 ||
+                                _displayHeight == 0)
+                            ? const SizedBox.shrink()
+                            : LayoutBuilder(builder: (ctx, constraints) {
+                                final imgW  = _displayWidth.toDouble();
+                                final imgH  = _displayHeight.toDouble();
+                                final scale = math.min(
+                                  constraints.maxWidth  / imgW,
+                                  constraints.maxHeight / imgH,
+                                );
+                                final fitW = imgW * scale;
+                                final fitH = imgH * scale;
+                                final offX = (constraints.maxWidth  - fitW) / 2;
+                                final offY = (constraints.maxHeight - fitH) / 2;
+
+                                // Layout-Werte für Crop-Koordinaten cachen
+                                _renderScale  = scale;
+                                _imageOffsetX = offX;
+                                _imageOffsetY = offY;
+                                _imageFitW    = fitW;
+                                _imageFitH    = fitH;
+
+                                return Stack(children: [
+                                  // ── Schwarzer Hintergrund ──
+                                  Positioned.fill(
+                                    child: ColoredBox(
+                                      color: _istDunkel
+                                          ? Colors.black
+                                          : Colors.grey.shade200,
+                                    ),
+                                  ),
+
+                                  // ── Bild mit Zoom/Pan ──
+                                  // Im Crop-Mode: panEnabled=false, damit
+                                  // Drag-Gesten zum Crop-Overlay gehen.
+                                  // Im Normal-Mode: voller Zoom/Pan.
+                                  Positioned(
+                                    left: offX, top: offY,
+                                    width: fitW, height: fitH,
+                                    child: _isCropMode
+                                        // Im Crop-Mode: kein InteractiveViewer,
+                                        // damit Pointer-Events ans Crop-Overlay
+                                        // weitergegeben werden
+                                        ? Image.memory(
                                             _displayBytes!,
                                             fit: BoxFit.fill,
                                             gaplessPlayback: true,
+                                          )
+                                        : InteractiveViewer(
+                                            panEnabled: true,
+                                            minScale: 0.25,
+                                            maxScale: 4.0,
+                                            transformationController:
+                                                _zoomController,
+                                            child: Image.memory(
+                                              _displayBytes!,
+                                              fit: BoxFit.fill,
+                                              gaplessPlayback: true,
+                                            ),
                                           ),
-                                        ),
-                                ),
-                                // Crop-Overlay
-                                if (_isCropMode)
-                                  Positioned(
-                                    left: offsetX, top: offsetY,
-                                    width: fitW, height: fitH,
-                                    child: Listener(
-                                      onPointerDown: _onPanStart,
-                                      onPointerMove: _onPanUpdate,
-                                      onPointerUp: _onPanEnd,
-                                      behavior: HitTestBehavior.translucent,
-                                      child: CustomPaint(
-                                        size: Size(fitW, fitH),
-                                        painter: _CropPainter(
-                                          cropRect: Rect.fromLTWH(
-                                            _cropRect.left * scale,
-                                            _cropRect.top * scale,
-                                            _cropRect.width * scale,
-                                            _cropRect.height * scale,
+                                  ),
+
+                                  // ── Crop-Overlay ──
+                                  // Das Listener-Widget spannt den gesamten
+                                  // Stack auf, um Pointer-Events zu fangen.
+                                  // Die Koordinaten werden relativ zum
+                                  // Bild-Offset umgerechnet (in _onPanStart/Update).
+                                  if (_isCropMode)
+                                    Positioned.fill(
+                                      child: Listener(
+                                        onPointerDown:  _onPanStart,
+                                        onPointerMove:  _onPanUpdate,
+                                        onPointerUp:    _onPanEnd,
+                                        behavior: HitTestBehavior.translucent,
+                                        child: CustomPaint(
+                                          painter: _CropPainter(
+                                            // Crop-Rect in Screen-Koordinaten
+                                            // (relativ zum Stack, nicht zum Bild):
+                                            cropRect: Rect.fromLTWH(
+                                              offX + _cropRect.left   * scale,
+                                              offY + _cropRect.top    * scale,
+                                              _cropRect.width  * scale,
+                                              _cropRect.height * scale,
+                                            ),
+                                            // Gesamter Bereich für Abdunkelung
+                                            fullSize: Size(
+                                              constraints.maxWidth,
+                                              constraints.maxHeight,
+                                            ),
+                                            handleSize: _handleSize,
+                                            isDark: _istDunkel,
                                           ),
-                                          isActive: true,
-                                          handleSize: _handleSize,
-                                          brightness: Theme.of(context).brightness,
                                         ),
                                       ),
                                     ),
-                                  ),
-                              ],
-                            );
-                          },
-                        ),
-                ),
-
-              // --- GANZ LINKS: SCHLIESSEN (Kreuz) ---
-              Positioned(
-                top: 0, left: 0,
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Material(
-                      color: _istDunkel ? Colors.grey.shade800 : Colors.grey.shade200,
-                      elevation: 4, shape: const CircleBorder(),
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: _isSaving ? null : () async {
-                          final shouldPop = await _onWillPop();
-                          if (shouldPop && mounted) {
-                            // ignore: use_build_context_synchronously
-                            Navigator.pop(context);
-                          }
-                        },
-                        child: const SizedBox(width: 48, height: 48, child: Icon(Icons.close, size: 28, color: Colors.white)),
+                                ]);
+                              }),
                       ),
-                    ),
-                  ),
-                ),
-              ),
 
-              // --- GANZ RECHTS: SPEICHERN (Haken) ---
-              Positioned(
-                top: 0, right: 0,
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Material(
-                      color: _istDunkel ? Colors.green.shade700 : Colors.green.shade600,
-                      elevation: 4, shape: const CircleBorder(),
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: _isSaving ? null : _saveAndExit,
-                        child: _isSaving
-                            ? const SizedBox(width: 48, height: 48, child: Center(child: CircularProgressIndicator(strokeWidth: 3, valueColor: AlwaysStoppedAnimation(Colors.white))))
-                            : const SizedBox(width: 48, height: 48, child: Icon(Icons.check, size: 28, color: Colors.white)),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // --- UNTEN MITTE: CROP-TOGGLE ---
-              Positioned(
-                bottom: 0, left: 0, right: 0,
-                child: SafeArea(
-                  top: false,
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Material(
-                        color: _istDunkel ? Colors.grey.shade800 : Colors.white,
-                        elevation: 4,
-                        borderRadius: BorderRadius.circular(24),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(24),
-                          onTap: _isSaving ? null : _toggleCropMode,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            child: Row(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(_isCropMode ? Icons.crop_free : Icons.crop_free_outlined, size: 22, color: _istDunkel ? Colors.white : Colors.black),
-                              const SizedBox(width: 8),
-                              Text(_isCropMode ? _getLabelText('crop_done') : _getLabelText('crop'), style: TextStyle(color: _istDunkel ? Colors.white : Colors.black, fontWeight: FontWeight.w600)),
-                            ]),
+                    // ── Schließen (links oben) ──────────────────────────
+                    Positioned(
+                      top: 0, left: 0,
+                      child: SafeArea(
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: _circleButton(
+                            color: _istDunkel
+                                ? Colors.grey.shade800.withValues(alpha: 0.85)
+                                : Colors.grey.shade100.withValues(alpha: 0.85),
+                            onTap: _isSaving ? null : () async {
+                              final ok = await _onWillPop();
+                              if (ok && mounted) {
+                                // ignore: use_build_context_synchronously
+                                Navigator.pop(context);
+                              }
+                            },
+                            child: Icon(
+                              Icons.close, size: 26,
+                              color: _istDunkel ? Colors.white : Colors.black87,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
+
+                    // ── Speichern (rechts oben) ─────────────────────────
+                    Positioned(
+                      top: 0, right: 0,
+                      child: SafeArea(
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: _circleButton(
+                            color: _istDunkel
+                                ? Colors.green.shade700
+                                : Colors.green.shade600,
+                            onTap: _isSaving ? null : _saveAndExit,
+                            child: _isSaving
+                                ? const SizedBox(
+                                    width: 48, height: 48,
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 3,
+                                        valueColor: AlwaysStoppedAnimation(
+                                            Colors.white),
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(Icons.check,
+                                    size: 26, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // ── Crop-Toggle (unten mitte, über dem Sheet) ───────
+                    Positioned(
+                      bottom: 12, left: 0, right: 0,
+                      child: Center(
+                        child: Material(
+                          color: _isCropMode
+                              ? Colors.blueAccent
+                              : (_istDunkel
+                                  ? Colors.grey.shade800.withValues(alpha: 0.9)
+                                  : Colors.white.withValues(alpha: 0.9)),
+                          elevation: 4,
+                          borderRadius: BorderRadius.circular(24),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(24),
+                            onTap: _isSaving ? null : _toggleCropMode,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 10),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _isCropMode
+                                        ? Icons.crop_free
+                                        : Icons.crop_free_outlined,
+                                    size: 20,
+                                    color: _isCropMode
+                                        ? Colors.white
+                                        : (_istDunkel
+                                            ? Colors.white
+                                            : Colors.black87),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _isCropMode
+                                        ? _t('crop_done')
+                                        : _t('crop'),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: _isCropMode
+                                          ? Colors.white
+                                          : (_istDunkel
+                                              ? Colors.white
+                                              : Colors.black87),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
+
+              // ── Sheet ────────────────────────────────────────────────
+              if (!_isLoading)
+                _buildSheet(settings),
             ],
           ),
-          bottomNavigationBar: _isLoading ? null : _buildEditOptionsSheet(settings),
         ),
       ),
     );
   }
 
-  Widget _buildEditOptionsSheet(SettingsProvider settings) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _istDunkel ? const Color(0xFF1E1E1E) : Colors.white,
-        border: Border(top: BorderSide(color: _istDunkel ? Colors.grey.shade700 : Colors.grey.shade300)),
+  // ─────────────────────────────────────────────────────────────────────────
+  // SHEET  (kein DraggableScrollableSheet – einfacher AnimatedContainer)
+  // ─────────────────────────────────────────────────────────────────────────
+  // Das Sheet ist ein einfacher Container am unteren Bildschirmrand.
+  // Per GestureDetector (vertikaler Drag) kann der Nutzer es einziehen
+  // oder ausfahren. Wenn _sheetVisible == false, zeigt es nur den
+  // Anfasser (~24px); alle Buttons sind dann ausgegraut/disabled.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Mindesthöhe wenn eingezogen (nur Anfasser)
+  static const double _sheetCollapsedH = 24.0;
+
+  // Volle Höhe des Sheets (Anfasser + Inhalt)
+  // Wird erst nach dem ersten Build korrekt befüllt; vorher Schätzwert.
+  double _sheetExpandedH = 180.0;
+
+  // Aktuelle Höhe (wird per Drag verändert)
+  double _sheetCurrentH  = 180.0;
+  bool   _sheetMeasured  = false;
+
+  // Drag-Startpunkt für vertikales Ziehen
+  double? _dragStartY;
+  double? _dragStartH;
+
+  void _onSheetDragStart(DragStartDetails d) {
+    _dragStartY = d.globalPosition.dy;
+    _dragStartH = _sheetCurrentH;
+  }
+
+  void _onSheetDragUpdate(DragUpdateDetails d) {
+    if (_dragStartY == null || _dragStartH == null) return;
+    final delta = _dragStartY! - d.globalPosition.dy; // positiv = hochziehen
+    final newH = (_dragStartH! + delta)
+        .clamp(_sheetCollapsedH, _sheetExpandedH);
+    setState(() {
+      _sheetCurrentH = newH;
+      _sheetVisible  = newH > _sheetCollapsedH + 10;
+    });
+  }
+
+  void _onSheetDragEnd(DragEndDetails d) {
+    // Snap: unter 50% → zuziehen, über 50% → ausfahren
+    final half = (_sheetExpandedH + _sheetCollapsedH) / 2;
+    setState(() {
+      if (_sheetCurrentH < half) {
+        _sheetCurrentH = _sheetCollapsedH;
+        _sheetVisible  = false;
+      } else {
+        _sheetCurrentH = _sheetExpandedH;
+        _sheetVisible  = true;
+      }
+    });
+    _dragStartY = null;
+    _dragStartH = null;
+  }
+
+  Widget _buildSheet(SettingsProvider settings) {
+    // Bestimme ob Buttons aktiv sind:
+    // ausgegraut wenn Sheet eingezogen ODER Speichern läuft ODER Crop-Mode
+    final btnsActive = _sheetVisible && !_isSaving && !_isCropMode;
+
+    return GestureDetector(
+      onVerticalDragStart:  _onSheetDragStart,
+      onVerticalDragUpdate: _onSheetDragUpdate,
+      onVerticalDragEnd:    _onSheetDragEnd,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        height: _sheetCurrentH,
+        decoration: BoxDecoration(
+          color: _istDunkel ? const Color(0xFF1C1C1E) : Colors.white,
+          border: Border(
+            top: BorderSide(
+              color: _istDunkel ? Colors.grey.shade700 : Colors.grey.shade300,
+            ),
+          ),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Anfasser ──────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: _istDunkel
+                        ? Colors.grey.shade600
+                        : Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+
+            // ── Inhalt (MeasureSize für erste Höhenermittlung) ─────────
+            if (_sheetVisible)
+              Flexible(
+                child: SingleChildScrollView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: MeasureSize(
+                    onChange: (size) {
+                      if (!_sheetMeasured) {
+                        final fullH = size.height + 20 + _sheetCollapsedH;
+                        setState(() {
+                          _sheetExpandedH  = fullH.clamp(120.0, 300.0);
+                          _sheetCurrentH   = _sheetExpandedH;
+                          _sheetMeasured   = true;
+                        });
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                      child: Wrap(
+                        spacing: 2,
+                        runSpacing: 4,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          // Zoom raus (sichtbarer Rahmen)
+                          _sheetBtn(
+                            icon: Icons.zoom_out_map,
+                            color: Colors.blueAccent,
+                            tooltip: _t('zoom_out'),
+                            active: btnsActive,
+                            onTap: () => _applyZoom(_calcZoomOutScale()),
+                          ),
+                          // Zoom auf 1:1
+                          _sheetBtn(
+                            icon: Icons.fit_screen,
+                            color: Colors.blueAccent,
+                            tooltip: _t('fit_to_screen'),
+                            active: btnsActive,
+                            onTap: () => _applyZoom(1.0),
+                          ),
+                          // Zoom zurücksetzen
+                          _sheetBtn(
+                            icon: Icons.crop_original,
+                            color: Colors.blueAccent,
+                            tooltip: _t('reset_zoom'),
+                            active: btnsActive,
+                            onTap: _resetZoom,
+                          ),
+                          _divider(),
+
+                          // Helligkeit
+                          _slider('brightness', Icons.wb_sunny_outlined,
+                              _brightness, _onBrightnessChanged, settings,
+                              active: btnsActive),
+                          // Kontrast
+                          _slider('contrast', Icons.contrast_outlined,
+                              _contrast, _onContrastChanged, settings,
+                              active: btnsActive),
+                          // Sättigung
+                          _slider('saturation', Icons.color_lens_outlined,
+                              _saturation, _onSaturationChanged, settings,
+                              active: btnsActive),
+                          _divider(),
+
+                          // Rotation links
+                          _sheetBtn(
+                            icon: Icons.rotate_left,
+                            color: _istDunkel ? Colors.white70 : Colors.black87,
+                            tooltip: _t('rotate_left'),
+                            active: btnsActive,
+                            onTap: _rotateLeft,
+                          ),
+                          // Rotation rechts
+                          _sheetBtn(
+                            icon: Icons.rotate_right,
+                            color: _istDunkel ? Colors.white70 : Colors.black87,
+                            tooltip: _t('rotate_right'),
+                            active: btnsActive,
+                            onTap: _rotateRight,
+                          ),
+                          _divider(),
+
+                          // Regler zurücksetzen
+                          _sheetBtn(
+                            icon: Icons.tune_outlined,
+                            color: Colors.orangeAccent,
+                            tooltip: _t('reset_all'),
+                            active: btnsActive,
+                            onTap: _resetSlidersOnly,
+                          ),
+                          // Original herstellen
+                          _sheetBtn(
+                            icon: Icons.restore,
+                            color: Colors.redAccent,
+                            tooltip: _t('reset_to_original'),
+                            active: btnsActive,
+                            onTap: _resetToOriginal,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
-      child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(color: _istDunkel ? Colors.grey.shade600 : Colors.grey.shade400, borderRadius: BorderRadius.circular(2))),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Wrap(spacing: 12, runSpacing: 12, children: [
-
-          // ── Zoom-Steuerung ──
-          // "Herauszoomen mit Rahmen" – das Bild wird kleiner angezeigt,
-          // sodass ein sichtbarer Rahmen rundherum entsteht (Galerie-App-Stil).
-          IconButton(
-            icon: const Icon(Icons.zoom_out_map, color: Colors.blueAccent),
-            onPressed: _isSaving ? null : () {
-              final zoomOut = _zoomOutScale(_fitWidth, _fitHeight, _containerWidth, _containerHeight);
-              _zoomToFit(zoomOut);
-            },
-            tooltip: _getLabelText('zoom_out'),
-          ),
-          // "An Bild anpassen" – Standard-Zoom, Bild füllt den Bildschirm
-          IconButton(
-            icon: const Icon(Icons.fit_screen, color: Colors.blueAccent),
-            onPressed: _isSaving ? null : () => _zoomToFit(1.0),
-            tooltip: _getLabelText('fit_to_screen'),
-          ),
-          // "Zoom zurücksetzen" – Identity-Matrix (entspricht "An Bild anpassen")
-          IconButton(
-            icon: const Icon(Icons.zoom_out_map_outlined, color: Colors.blueAccent),
-            onPressed: _isSaving ? null : _resetZoom,
-            tooltip: _getLabelText('reset_zoom'),
-          ),
-          const VerticalDivider(thickness: 1),
-
-          // Bildanpassung
-          _buildSlider('brightness', Icons.wb_sunny_outlined, _brightness, _onBrightnessChanged, settings),
-          _buildSlider('contrast', Icons.contrast_outlined, _contrast, _onContrastChanged, settings),
-          _buildSlider('saturation', Icons.color_lens_outlined, _saturation, _onSaturationChanged, settings),
-          const VerticalDivider(thickness: 1),
-
-          IconButton(icon: const Icon(Icons.rotate_left), onPressed: _isSaving ? null : _rotateLeft, tooltip: _getLabelText('rotate_left')),
-          IconButton(icon: const Icon(Icons.rotate_right), onPressed: _isSaving ? null : _rotateRight, tooltip: _getLabelText('rotate_right')),
-          const VerticalDivider(thickness: 1),
-
-          // ── FIX: "Zurücksetzen" = nur Regler auf Standard ──
-          // Das allererste Original-Bild bleibt erhalten.
-          IconButton(
-            icon: const Icon(Icons.tune_outlined, color: Colors.orangeAccent),
-            onPressed: _isSaving ? null : _resetSlidersOnly,
-            tooltip: _getLabelText('reset_all'),
-          ),
-
-          // ── FIX: "Original herstellen" = Backup-Bild wiederherstellen ──
-          // Stellt das allererste geladene Originalbild (vor jeder Bearbeitung)
-          // wieder her und setzt alle Regler auf Standard zurück.
-          IconButton(
-            icon: const Icon(Icons.restore, color: Colors.redAccent),
-            onPressed: _isSaving ? null : _resetToOriginal,
-            tooltip: _getLabelText('reset_to_original'),
-          ),
-        ])),
-      ])),
     );
   }
 
-  Widget _buildSlider(String key, IconData icon, double value, void Function(double) onChanged, SettingsProvider settings) {
+  Widget _sheetBtn({
+    required IconData icon,
+    required Color color,
+    required String tooltip,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    final effectiveColor = active ? color : Colors.grey.shade500;
+    return IconButton(
+      icon: Icon(icon, color: effectiveColor),
+      onPressed: active ? onTap : null,
+      tooltip: tooltip,
+      splashRadius: 22,
+    );
+  }
+
+  Widget _divider() => SizedBox(
+    height: 36,
+    child: VerticalDivider(
+      thickness: 1,
+      indent: 4,
+      endIndent: 4,
+      color: _istDunkel ? Colors.grey.shade700 : Colors.grey.shade300,
+    ),
+  );
+
+  Widget _slider(
+    String key,
+    IconData icon,
+    double value,
+    void Function(double) onChange,
+    SettingsProvider s, {
+    required bool active,
+  }) {
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 16, color: Colors.grey), const SizedBox(width: 4), Text(_getLabelText(key), style: const TextStyle(fontSize: 11))]),
-      SizedBox(width: 160, child: Slider(value: value, min: 0.0, max: 2.0, divisions: 100, label: value.toStringAsFixed(1), onChanged: _isSaving ? null : onChanged, activeColor: settings.appButtonColor)),
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 14,
+            color: active ? Colors.grey : Colors.grey.shade600),
+        const SizedBox(width: 3),
+        Text(
+          _t(key),
+          style: TextStyle(
+            fontSize: 11,
+            color: active
+                ? (_istDunkel ? Colors.white70 : Colors.black87)
+                : Colors.grey.shade500,
+          ),
+        ),
+      ]),
+      SizedBox(
+        width: 145,
+        child: Slider(
+          value: value,
+          min: 0.0, max: 2.0, divisions: 100,
+          label: value.toStringAsFixed(1),
+          onChanged: active ? onChange : null,
+          activeColor: active ? s.appButtonColor : Colors.grey.shade500,
+          inactiveColor: Colors.grey.shade600,
+        ),
+      ),
     ]);
+  }
+
+  Widget _circleButton({
+    required Color color,
+    required VoidCallback? onTap,
+    required Widget child,
+  }) {
+    return Material(
+      color: color,
+      elevation: 4,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox(width: 48, height: 48,
+            child: Center(child: child)),
+      ),
+    );
   }
 }
 
-/// Parameter für Hintergrund-Speichern
+// ═══════════════════════════════════════════════════════════════════════════
+// MeasureSize – misst einmalig die Größe eines Widgets
+// ═══════════════════════════════════════════════════════════════════════════
+
+typedef OnWidgetSizeChange = void Function(Size size);
+
+class MeasureSize extends StatefulWidget {
+  final Widget child;
+  final OnWidgetSizeChange onChange;
+
+  const MeasureSize({
+    super.key,
+    required this.onChange,
+    required this.child,
+  });
+
+  @override
+  State<MeasureSize> createState() => _MeasureSizeState();
+}
+
+class _MeasureSizeState extends State<MeasureSize> {
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final box = context.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) {
+        widget.onChange(box.size);
+      }
+    });
+    return widget.child;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ISOLATE
+// ═══════════════════════════════════════════════════════════════════════════
+
 class _SaveParams {
-  final Uint8List originalBytes;
-  final int originalWidth;
-  final int originalHeight;
-  final int displayWidth;
-  final int displayHeight;
-  final Rect cropRect;
-  final double brightness;
-  final double contrast;
-  final double saturation;
-  final int rotation;
-  final String originalPath;
+  final Uint8List baseImageBytes;
+  final double    brightness;
+  final double    contrast;
+  final double    saturation;
+  final String    originalPath;
 
   const _SaveParams({
-    required this.originalBytes,
-    required this.originalWidth,
-    required this.originalHeight,
-    required this.displayWidth,
-    required this.displayHeight,
-    required this.cropRect,
+    required this.baseImageBytes,
     required this.brightness,
     required this.contrast,
     required this.saturation,
-    required this.rotation,
     required this.originalPath,
   });
 }
 
 class _SaveResult {
-  final bool success;
+  final bool    success;
   final String? error;
   const _SaveResult({required this.success, this.error});
 }
 
-/// Läuft im ISOLATE (Hintergrund-Thread) - UI blockiert NICHT!
 _SaveResult _saveInBackground(_SaveParams p) {
   try {
-    final img.Image? original = img.decodeImage(p.originalBytes);
-    if (original == null) return const _SaveResult(success: false, error: 'Bild nicht decodierbar');
-
-    img.Image finalImage = img.Image.from(original);
-    if (p.rotation == 90) {
-      finalImage = img.copyRotate(finalImage, angle: 90);
-    } else if (p.rotation == 180) {
-      finalImage = img.copyRotate(finalImage, angle: 180);
-    } else if (p.rotation == 270) {
-      finalImage = img.copyRotate(finalImage, angle: 270);
+    final img.Image? base = img.decodeImage(p.baseImageBytes);
+    if (base == null) {
+      return const _SaveResult(success: false, error: 'Bild nicht decodierbar');
     }
-    finalImage = img.adjustColor(finalImage, brightness: p.brightness, contrast: p.contrast, saturation: p.saturation);
-
-    if (!p.cropRect.isEmpty && p.displayWidth > 0 && p.displayHeight > 0) {
-      final scaleX = p.originalWidth / p.displayWidth;
-      final scaleY = p.originalHeight / p.displayHeight;
-
-      final origX = ((p.cropRect.left * scaleX).floor().clamp(0, p.originalWidth));
-      final origY = ((p.cropRect.top * scaleY).floor().clamp(0, p.originalHeight));
-      final origW = ((p.cropRect.width * scaleX).floor().clamp(1, p.originalWidth - origX));
-      final origH = ((p.cropRect.height * scaleY).floor().clamp(1, p.originalHeight - origY));
-
-      finalImage = img.copyCrop(finalImage, x: origX, y: origY, width: origW, height: origH);
-    }
-
-    final outBytes = Uint8List.fromList(img.encodeJpg(finalImage, quality: 95));
-    File(p.originalPath).writeAsBytesSync(outBytes);
-
+    final out = img.adjustColor(base,
+      brightness: p.brightness,
+      contrast:   p.contrast,
+      saturation: p.saturation,
+    );
+    final bytes = Uint8List.fromList(img.encodeJpg(out, quality: 95));
+    File(p.originalPath).writeAsBytesSync(bytes);
     return const _SaveResult(success: true);
   } catch (e) {
     return _SaveResult(success: false, error: e.toString());
   }
 }
 
-/// Crop-Handle Typen
-enum _DragType { topLeft, topRight, bottomLeft, bottomRight, top, bottom, left, right }
-class _DragHandle { final _DragType type; final Offset pos; _DragHandle(this.type, this.pos); }
+// ═══════════════════════════════════════════════════════════════════════════
+// CROP-PAINTER
+// ═══════════════════════════════════════════════════════════════════════════
 
-/// CustomPainter für professionellen Crop-Overlay
+enum _DragType {
+  topLeft, topRight, bottomLeft, bottomRight,
+  top, bottom, left, right,
+}
+
+class _DragHandle {
+  final _DragType type;
+  final Offset    pos;
+  _DragHandle(this.type, this.pos);
+}
+
 class _CropPainter extends CustomPainter {
-  final Rect cropRect;
-  final bool isActive;
+  final Rect   cropRect;   // in Screen-Koordinaten (inkl. Bild-Offset)
+  final Size   fullSize;   // Gesamtgröße des Painter-Bereichs
   final double handleSize;
-  final Brightness brightness;
+  final bool   isDark;
 
   _CropPainter({
     required this.cropRect,
-    required this.isActive,
+    required this.fullSize,
     required this.handleSize,
-    required this.brightness,
-  }) : super();
+    required this.isDark,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final darkPaint = Paint()..style = PaintingStyle.fill
-      ..color = brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.5);
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, cropRect.top), darkPaint);
-    canvas.drawRect(Rect.fromLTWH(0, cropRect.bottom, size.width, size.height - cropRect.bottom), darkPaint);
-    canvas.drawRect(Rect.fromLTWH(0, cropRect.top, cropRect.left, cropRect.height), darkPaint);
-    canvas.drawRect(Rect.fromLTWH(cropRect.right, cropRect.top, size.width - cropRect.right, cropRect.height), darkPaint);
+    final dim = Paint()
+      ..style = PaintingStyle.fill
+      ..color = Colors.black.withValues(alpha: isDark ? 0.6 : 0.5);
 
-    final borderPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = Colors.white;
-    canvas.drawRect(cropRect, borderPaint);
+    final w = fullSize.width;
+    final h = fullSize.height;
 
-    final gridPaint = Paint()
+    // Abdunkeln außerhalb des Crop-Rects
+    canvas.drawRect(Rect.fromLTWH(0, 0, w, cropRect.top), dim);
+    canvas.drawRect(
+        Rect.fromLTWH(0, cropRect.bottom, w, h - cropRect.bottom), dim);
+    canvas.drawRect(
+        Rect.fromLTWH(0, cropRect.top, cropRect.left, cropRect.height), dim);
+    canvas.drawRect(
+        Rect.fromLTWH(
+            cropRect.right, cropRect.top,
+            w - cropRect.right, cropRect.height),
+        dim);
+
+    // Rahmen
+    canvas.drawRect(
+      cropRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.white,
+    );
+
+    // Drittelregel
+    final grid = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.5
       ..color = Colors.white.withValues(alpha: 0.5);
-    final w3 = cropRect.width / 3, h3 = cropRect.height / 3;
     for (int i = 1; i < 3; i++) {
-      canvas.drawLine(Offset(cropRect.left + i * w3, cropRect.top), Offset(cropRect.left + i * w3, cropRect.bottom), gridPaint);
-      canvas.drawLine(Offset(cropRect.left, cropRect.top + i * h3), Offset(cropRect.right, cropRect.top + i * h3), gridPaint);
+      canvas.drawLine(
+        Offset(cropRect.left + cropRect.width  / 3 * i, cropRect.top),
+        Offset(cropRect.left + cropRect.width  / 3 * i, cropRect.bottom),
+        grid);
+      canvas.drawLine(
+        Offset(cropRect.left, cropRect.top + cropRect.height / 3 * i),
+        Offset(cropRect.right, cropRect.top + cropRect.height / 3 * i),
+        grid);
     }
 
-    final handlePaint = Paint()..color = Colors.white ..style = PaintingStyle.fill;
-    final handleBorder = Paint()..color = Colors.cyan ..style = PaintingStyle.stroke ..strokeWidth = 2;
-    final handles = [
-      cropRect.topLeft, cropRect.topRight, cropRect.bottomLeft, cropRect.bottomRight,
-      Offset(cropRect.center.dx, cropRect.top), Offset(cropRect.center.dx, cropRect.bottom),
-      Offset(cropRect.left, cropRect.center.dy), Offset(cropRect.right, cropRect.center.dy),
-    ];
-    for (final p in handles) {
+    // Handles
+    final fill   = Paint()..color = Colors.white..style = PaintingStyle.fill;
+    final border = Paint()..color = Colors.cyanAccent
+        ..style = PaintingStyle.stroke..strokeWidth = 2;
+    for (final p in [
+      cropRect.topLeft, cropRect.topRight,
+      cropRect.bottomLeft, cropRect.bottomRight,
+      Offset(cropRect.center.dx, cropRect.top),
+      Offset(cropRect.center.dx, cropRect.bottom),
+      Offset(cropRect.left,  cropRect.center.dy),
+      Offset(cropRect.right, cropRect.center.dy),
+    ]) {
       final r = Rect.fromCenter(center: p, width: handleSize, height: handleSize);
-      canvas.drawRect(r, handlePaint);
-      canvas.drawRect(r, handleBorder);
+      canvas.drawRect(r, fill);
+      canvas.drawRect(r, border);
     }
   }
 
   @override
-  bool shouldRepaint(_CropPainter o) => o.cropRect != cropRect || o.isActive != isActive;
+  bool shouldRepaint(_CropPainter o) =>
+      o.cropRect != cropRect || o.fullSize != fullSize;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BildVollbildScreen – wiederverwendbarer Vollbild-Betrachter mit Bearbeiten-
-// Button. Verwaltet seinen eigenen Version-Counter, damit Image.file nach
-// einem Speichern automatisch neu geladen wird.
+// BildVollbildScreen
 // ═══════════════════════════════════════════════════════════════════════════
 
 class BildVollbildResult {
@@ -995,20 +1316,12 @@ class BildVollbildScreen extends StatefulWidget {
 class _BildVollbildScreenState extends State<BildVollbildScreen> {
   int _version = 0;
 
-  /// ── FIX: Zuverlässiges Cache-Leeren nach einer Bearbeitung ──
-  /// Drei Schritte:
-  /// 1. FileImage aus dem PaintingBinding-Cache entfernen
-  /// 2. Den gesamten Image-Cache leeren (sicherste Methode)
-  /// 3. Version erhöhen → neuer Key → Flutter lädt Bild neu
   void _evictImageCache(String path) {
     try {
       if (!path.startsWith('http')) {
-        final file = File(path);
-        if (file.existsSync()) {
-          // Spezifischen FileImage-Cache-Eintrag entfernen
-          PaintingBinding.instance.imageCache.evict(FileImage(file));
-          // Zusätzlich den gesamten Cache leeren, um sicherzustellen
-          // dass keine gecachten Versionen des Bildes übrigbleiben
+        final f = File(path);
+        if (f.existsSync()) {
+          PaintingBinding.instance.imageCache.evict(FileImage(f));
           PaintingBinding.instance.imageCache.clear();
           PaintingBinding.instance.imageCache.clearLiveImages();
         }
@@ -1018,32 +1331,23 @@ class _BildVollbildScreenState extends State<BildVollbildScreen> {
         PaintingBinding.instance.imageCache.clearLiveImages();
       }
     } catch (e) {
-      debugPrint('Cache evict failed: $e');
-      // Fallback: Gesamten Cache leeren
-      try {
-        PaintingBinding.instance.imageCache.clear();
-      } catch (_) {}
+      debugPrint('Cache evict: $e');
+      try { PaintingBinding.instance.imageCache.clear(); } catch (_) {}
     }
   }
 
   Future<void> _oeffneEditor() async {
     if (widget.bildPfad.startsWith('http')) return;
-    final file = File(widget.bildPfad);
-    if (!file.existsSync()) return;
-
-    final result = await Navigator.of(context).push(
+    if (!File(widget.bildPfad).existsSync()) return;
+    final result = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => EditScreen(
           imageDataPath: widget.bildPfad,
-          originalPath: widget.bildPfad,
+          originalPath:  widget.bildPfad,
         ),
       ),
     );
-
     if (result != null && mounted) {
-      // ── FIX: Cache vollständig leeren + Version erhöhen ──
-      // Ohne vollständiges Cache-Leeren zeigt Flutter manchmal noch
-      // die alte Version des Bildes, auch wenn die Datei schon neu ist.
       _evictImageCache(widget.bildPfad);
       setState(() => _version++);
       widget.onImageEdited?.call();
@@ -1052,89 +1356,68 @@ class _BildVollbildScreenState extends State<BildVollbildScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool istDunkel = Theme.of(context).brightness == Brightness.dark;
-    final Color kreisFarbe = istDunkel ? Colors.black : Colors.white;
-    final Color symbolFarbe = istDunkel ? Colors.white : Colors.black;
+    final dark       = Theme.of(context).brightness == Brightness.dark;
+    final kreisFarbe = dark ? Colors.black : Colors.white;
+    final symFarbe   = dark ? Colors.white : Colors.black;
 
-    Widget bild;
-    if (widget.bildPfad.startsWith('http')) {
-      bild = Image.network(
-        widget.bildPfad,
-        fit: BoxFit.contain,
-        key: ValueKey('${widget.bildPfad}_$_version'),
-      );
-    } else {
-      // ── FIX: gaplessPlayback: false damit beim Versionswechsel das neue
-      // Bild korrekt geladen wird, ohne das alte zu "überblenden" ──
-      bild = Image.file(
-        File(widget.bildPfad),
-        fit: BoxFit.contain,
-        key: ValueKey('${widget.bildPfad}_$_version'),
-        gaplessPlayback: false,
-      );
-    }
+    final bild = widget.bildPfad.startsWith('http')
+        ? Image.network(
+            widget.bildPfad,
+            fit: BoxFit.contain,
+            key: ValueKey('${widget.bildPfad}_$_version'),
+          )
+        : Image.file(
+            File(widget.bildPfad),
+            fit: BoxFit.contain,
+            gaplessPlayback: false,
+            key: ValueKey('${widget.bildPfad}_$_version'),
+          );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: istDunkel ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      value: dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       child: Scaffold(
-        backgroundColor: istDunkel ? Colors.black : Colors.white,
-        body: Stack(
-          children: [
-            Positioned.fill(
-              child: InteractiveViewer(
-                panEnabled: true,
-                minScale: 0.3,
-                maxScale: 4.0,
-                child: bild,
+        backgroundColor: dark ? Colors.black : Colors.white,
+        body: Stack(children: [
+          Positioned.fill(
+            child: InteractiveViewer(
+              panEnabled: true,
+              minScale: 0.3,
+              maxScale: 4.0,
+              child: bild,
+            ),
+          ),
+          Positioned(top: 0, left: 0,
+            child: SafeArea(
+              child: Padding(padding: const EdgeInsets.all(8),
+                child: Material(
+                  color: kreisFarbe, elevation: 3, shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => Navigator.of(context).pop(),
+                    child: Padding(padding: const EdgeInsets.all(10),
+                      child: Icon(Icons.close, size: 28, color: symFarbe)),
+                  ),
+                ),
               ),
             ),
-            // Schließen (links)
-            Positioned(
-              top: 0, left: 0,
+          ),
+          if (!widget.bildPfad.startsWith('http'))
+            Positioned(top: 0, right: 0,
               child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
+                child: Padding(padding: const EdgeInsets.all(8),
                   child: Material(
-                    color: kreisFarbe,
-                    elevation: 3,
-                    shape: const CircleBorder(),
+                    color: kreisFarbe, elevation: 3, shape: const CircleBorder(),
                     child: InkWell(
                       customBorder: const CircleBorder(),
-                      onTap: () => Navigator.of(context).pop(),
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Icon(Icons.close, size: 28, color: symbolFarbe),
-                      ),
+                      onTap: _oeffneEditor,
+                      child: Padding(padding: const EdgeInsets.all(12),
+                        child: Icon(Icons.edit, size: 24, color: symFarbe)),
                     ),
                   ),
                 ),
               ),
             ),
-            // Bearbeiten (rechts) – nur für lokale Dateien
-            if (!widget.bildPfad.startsWith('http'))
-              Positioned(
-                top: 0, right: 0,
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Material(
-                      color: kreisFarbe,
-                      elevation: 3,
-                      shape: const CircleBorder(),
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: _oeffneEditor,
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Icon(Icons.edit, size: 24, color: symbolFarbe),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+        ]),
       ),
     );
   }
