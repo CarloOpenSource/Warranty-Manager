@@ -91,14 +91,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   // Offset des Bildes im Vollbild-Container
   double _imageOffsetX    = 0.0;
   double _imageOffsetY    = 0.0;
-  // Angezeigte Bildgröße in Bildschirm-Pixeln
-  double _imageFitW       = 0.0;
-  double _imageFitH       = 0.0;
 
   // ── Zoom ──────────────────────────────────────────────────────────────────
   late final TransformationController _zoomController;
-  // Aktueller Zoom-Faktor (1.0 = Standard)
-  double _currentZoom = 1.0;
 
   // ── Bottom-Sheet ──────────────────────────────────────────────────────────
   // Wir verwenden einen einfachen AnimationController-gesteuerten
@@ -300,7 +295,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     // Im Crop-Mode Zoom auf Identity zurücksetzen, damit _renderScale
     // und die Bild-Offsets exakt stimmen und die Handles korrekt sitzen.
     _zoomController.value = Matrix4.identity();
-    _currentZoom = 1.0;
     // Crop-Rect etwas einrücken, damit das Bild den Bildschirmrand
     // nicht berührt und der Nutzer vernünftig zuschneiden kann.
     if (_baseDisplayImage != null) {
@@ -368,7 +362,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
   void _resetZoom() {
     _zoomController.value = Matrix4.identity();
-    _currentZoom = 1.0;
   }
 
   /// Setzt den Zoom-Faktor des InteractiveViewers programmatisch.
@@ -380,7 +373,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     // BoxFit.contain das Bild von Natur aus zentriert.
     final m = Matrix4.diagonal3Values(targetScale, targetScale, 1.0);
     _zoomController.value = m;
-    _currentZoom = targetScale;
   }
 
   double _calcZoomOutScale() {
@@ -649,8 +641,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                 _renderScale  = scale;
                                 _imageOffsetX = offX;
                                 _imageOffsetY = offY;
-                                _imageFitW    = fitW;
-                                _imageFitH    = fitH;
 
                                 return Stack(children: [
                                   // ── Schwarzer Hintergrund ──
