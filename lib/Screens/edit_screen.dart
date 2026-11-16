@@ -606,240 +606,243 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         child: Scaffold(
           backgroundColor: _istDunkel ? Colors.black : Colors.white,
           // Kein bottomNavigationBar – das Sheet liegt direkt im Stack
-          body: Column(
-            children: [
-              // ── Bildbereich ──────────────────────────────────────────
-              Expanded(
-                child: Stack(
-                  children: [
-                    // Vollflächiges Bild mit Zoom/Pan
-                    if (_isLoading)
-                      const Center(child: CircularProgressIndicator())
-                    else
-                      Positioned.fill(
-                        child: (_displayBytes == null ||
-                                _displayWidth == 0 ||
-                                _displayHeight == 0)
-                            ? const SizedBox.shrink()
-                            : LayoutBuilder(builder: (ctx, constraints) {
-                                final imgW  = _displayWidth.toDouble();
-                                final imgH  = _displayHeight.toDouble();
-                                // Im Crop-Mode immer einen Rand einhalten,
-                                // damit das Bild den Bildschirmrand nicht
-                                // berührt und der Nutzer es zuschneiden kann.
-                                final pad = _isCropMode ? 24.0 : 0.0;
-                                final scale = math.min(
-                                  (constraints.maxWidth  - pad * 2) / imgW,
-                                  (constraints.maxHeight - pad * 2) / imgH,
-                                );
-                                final fitW = imgW * scale;
-                                final fitH = imgH * scale;
-                                final offX = (constraints.maxWidth  - fitW) / 2;
-                                final offY = (constraints.maxHeight - fitH) / 2;
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                // ── Bildbereich ──────────────────────────────────────────
+                Expanded(
+                  child: Stack(
+                    children: [
+                      // Vollflächiges Bild mit Zoom/Pan
+                      if (_isLoading)
+                        const Center(child: CircularProgressIndicator())
+                      else
+                        Positioned.fill(
+                          child: (_displayBytes == null ||
+                                  _displayWidth == 0 ||
+                                  _displayHeight == 0)
+                              ? const SizedBox.shrink()
+                              : LayoutBuilder(builder: (ctx, constraints) {
+                                  final imgW  = _displayWidth.toDouble();
+                                  final imgH  = _displayHeight.toDouble();
+                                  // Im Crop-Mode immer einen Rand einhalten,
+                                  // damit das Bild den Bildschirmrand nicht
+                                  // berührt und der Nutzer es zuschneiden kann.
+                                  final pad = _isCropMode ? 24.0 : 0.0;
+                                  final scale = math.min(
+                                    (constraints.maxWidth  - pad * 2) / imgW,
+                                    (constraints.maxHeight - pad * 2) / imgH,
+                                  );
+                                  final fitW = imgW * scale;
+                                  final fitH = imgH * scale;
+                                  final offX = (constraints.maxWidth  - fitW) / 2;
+                                  final offY = (constraints.maxHeight - fitH) / 2;
 
-                                // Layout-Werte für Crop-Koordinaten cachen
-                                _renderScale  = scale;
-                                _imageOffsetX = offX;
-                                _imageOffsetY = offY;
+                                  // Layout-Werte für Crop-Koordinaten cachen
+                                  _renderScale  = scale;
+                                  _imageOffsetX = offX;
+                                  _imageOffsetY = offY;
 
-                                return Stack(children: [
-                                  // ── Schwarzer Hintergrund ──
-                                  Positioned.fill(
-                                    child: ColoredBox(
-                                      color: _istDunkel
-                                          ? Colors.black
-                                          : Colors.grey.shade200,
+                                  return Stack(children: [
+                                    // ── Schwarzer Hintergrund ──
+                                    Positioned.fill(
+                                      child: ColoredBox(
+                                        color: _istDunkel
+                                            ? Colors.black
+                                            : Colors.grey.shade200,
+                                      ),
                                     ),
-                                  ),
 
-                                  // ── Bild mit Zoom/Pan ──
-                                  // Im Crop-Mode: panEnabled=false, damit
-                                  // Drag-Gesten zum Crop-Overlay gehen.
-                                  // Im Normal-Mode: voller Zoom/Pan.
-                                  Positioned(
-                                    left: offX, top: offY,
-                                    width: fitW, height: fitH,
-                                    child: _isCropMode
-                                        // Im Crop-Mode: kein InteractiveViewer,
-                                        // damit Pointer-Events ans Crop-Overlay
-                                        // weitergegeben werden
-                                        ? Image.memory(
-                                            _displayBytes!,
-                                            fit: BoxFit.fill,
-                                            gaplessPlayback: true,
-                                          )
-                                        : InteractiveViewer(
-                                            panEnabled: true,
-                                            minScale: 0.25,
-                                            maxScale: 4.0,
-                                            transformationController:
-                                                _zoomController,
-                                            child: Image.memory(
+                                    // ── Bild mit Zoom/Pan ──
+                                    // Im Crop-Mode: panEnabled=false, damit
+                                    // Drag-Gesten zum Crop-Overlay gehen.
+                                    // Im Normal-Mode: voller Zoom/Pan.
+                                    Positioned(
+                                      left: offX, top: offY,
+                                      width: fitW, height: fitH,
+                                      child: _isCropMode
+                                          // Im Crop-Mode: kein InteractiveViewer,
+                                          // damit Pointer-Events ans Crop-Overlay
+                                          // weitergegeben werden
+                                          ? Image.memory(
                                               _displayBytes!,
                                               fit: BoxFit.fill,
                                               gaplessPlayback: true,
+                                            )
+                                          : InteractiveViewer(
+                                              panEnabled: true,
+                                              minScale: 0.25,
+                                              maxScale: 4.0,
+                                              transformationController:
+                                                  _zoomController,
+                                              child: Image.memory(
+                                                _displayBytes!,
+                                                fit: BoxFit.fill,
+                                                gaplessPlayback: true,
+                                              ),
                                             ),
-                                          ),
-                                  ),
+                                    ),
 
-                                  // ── Crop-Overlay ──
-                                  // Das Listener-Widget spannt den gesamten
-                                  // Stack auf, um Pointer-Events zu fangen.
-                                  // Die Koordinaten werden relativ zum
-                                  // Bild-Offset umgerechnet (in _onPanStart/Update).
-                                  if (_isCropMode)
-                                    Positioned.fill(
-                                      child: Listener(
-                                        onPointerDown:  _onPanStart,
-                                        onPointerMove:  _onPanUpdate,
-                                        onPointerUp:    _onPanEnd,
-                                        behavior: HitTestBehavior.translucent,
-                                        child: CustomPaint(
-                                          painter: _CropPainter(
-                                            // Crop-Rect in Screen-Koordinaten
-                                            // (relativ zum Stack, nicht zum Bild):
-                                            cropRect: Rect.fromLTWH(
-                                              offX + _cropRect.left   * scale,
-                                              offY + _cropRect.top    * scale,
-                                              _cropRect.width  * scale,
-                                              _cropRect.height * scale,
+                                    // ── Crop-Overlay ──
+                                    // Das Listener-Widget spannt den gesamten
+                                    // Stack auf, um Pointer-Events zu fangen.
+                                    // Die Koordinaten werden relativ zum
+                                    // Bild-Offset umgerechnet (in _onPanStart/Update).
+                                    if (_isCropMode)
+                                      Positioned.fill(
+                                        child: Listener(
+                                          onPointerDown:  _onPanStart,
+                                          onPointerMove:  _onPanUpdate,
+                                          onPointerUp:    _onPanEnd,
+                                          behavior: HitTestBehavior.translucent,
+                                          child: CustomPaint(
+                                            painter: _CropPainter(
+                                              // Crop-Rect in Screen-Koordinaten
+                                              // (relativ zum Stack, nicht zum Bild):
+                                              cropRect: Rect.fromLTWH(
+                                                offX + _cropRect.left   * scale,
+                                                offY + _cropRect.top    * scale,
+                                                _cropRect.width  * scale,
+                                                _cropRect.height * scale,
+                                              ),
+                                              // Gesamter Bereich für Abdunkelung
+                                              fullSize: Size(
+                                                constraints.maxWidth,
+                                                constraints.maxHeight,
+                                              ),
+                                              handleSize: _handleSize,
+                                              isDark: _istDunkel,
                                             ),
-                                            // Gesamter Bereich für Abdunkelung
-                                            fullSize: Size(
-                                              constraints.maxWidth,
-                                              constraints.maxHeight,
-                                            ),
-                                            handleSize: _handleSize,
-                                            isDark: _istDunkel,
                                           ),
                                         ),
                                       ),
-                                    ),
-                                ]);
-                              }),
-                      ),
-
-                    // ── Schließen (links oben) ──────────────────────────
-                    Positioned(
-                      top: 0, left: 0,
-                      child: SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: _circleButton(
-                            color: _istDunkel
-                                ? Colors.grey.shade800.withValues(alpha: 0.85)
-                                : Colors.grey.shade100.withValues(alpha: 0.85),
-                            onTap: _isSaving ? null : () async {
-                              final ok = await _onWillPop();
-                              if (ok && mounted) {
-                                // ignore: use_build_context_synchronously
-                                Navigator.pop(context);
-                              }
-                            },
-                            child: Icon(
-                              Icons.close, size: 26,
-                              color: _istDunkel ? Colors.white : Colors.black87,
-                            ),
-                          ),
+                                  ]);
+                                }),
                         ),
-                      ),
-                    ),
 
-                    // ── Speichern (rechts oben) ─────────────────────────
-                    Positioned(
-                      top: 0, right: 0,
-                      child: SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: _circleButton(
-                            color: _istDunkel
-                                ? Colors.green.shade700
-                                : Colors.green.shade600,
-                            onTap: _isSaving ? null : _saveAndExit,
-                            child: _isSaving
-                                ? const SizedBox(
-                                    width: 48, height: 48,
-                                    child: Center(
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 3,
-                                        valueColor: AlwaysStoppedAnimation(
-                                            Colors.white),
-                                      ),
-                                    ),
-                                  )
-                                : const Icon(Icons.check,
-                                    size: 26, color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // ── Crop-Toggle (unten mitte, über dem Sheet) ───────
-                    Positioned(
-                      bottom: 12, left: 0, right: 0,
-                      child: Center(
-                        child: Material(
-                          color: _isCropMode
-                              ? Colors.blueAccent
-                              : (_istDunkel
-                                  ? Colors.grey.shade800.withValues(alpha: 0.9)
-                                  : Colors.white.withValues(alpha: 0.9)),
-                          elevation: 4,
-                          borderRadius: BorderRadius.circular(24),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(24),
-                            onTap: _isSaving ? null : _toggleCropMode,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 20, vertical: 10),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    _isCropMode
-                                        ? Icons.crop_free
-                                        : Icons.crop_free_outlined,
-                                    size: 20,
-                                    color: _isCropMode
-                                        ? Colors.white
-                                        : (_istDunkel
-                                            ? Colors.white
-                                            : Colors.black87),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _isCropMode
-                                        ? _t('crop_done')
-                                        : _t('crop'),
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: _isCropMode
-                                          ? Colors.white
-                                          : (_istDunkel
-                                              ? Colors.white
-                                              : Colors.black87),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
+                      // ── Schließen (links oben) ──────────────────────────
+                      Positioned(
+                        top: 0, left: 0,
+                        child: SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: _circleButton(
+                              color: _istDunkel
+                                  ? Colors.grey.shade800.withValues(alpha: 0.85)
+                                  : Colors.grey.shade100.withValues(alpha: 0.85),
+                              onTap: _isSaving ? null : () async {
+                                final ok = await _onWillPop();
+                                if (ok && mounted) {
+                                  // ignore: use_build_context_synchronously
+                                  Navigator.pop(context);
+                                }
+                              },
+                              child: Icon(
+                                Icons.close, size: 26,
+                                color: _istDunkel ? Colors.white : Colors.black87,
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
 
-              // ── Sheet ────────────────────────────────────────────────
-              if (!_isLoading)
-                _buildSheet(settings),
-            ],
-          ),
-        ),
-      ),
-    );
+                      // ── Speichern (rechts oben) ─────────────────────────
+                      Positioned(
+                        top: 0, right: 0,
+                        child: SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: _circleButton(
+                              color: _istDunkel
+                                  ? Colors.green.shade700
+                                  : Colors.green.shade600,
+                              onTap: _isSaving ? null : _saveAndExit,
+                              child: _isSaving
+                                  ? const SizedBox(
+                                      width: 48, height: 48,
+                                      child: Center(
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 3,
+                                          valueColor: AlwaysStoppedAnimation(
+                                              Colors.white),
+                                        ),
+                                      ),
+                                    )
+                                  : const Icon(Icons.check,
+                                      size: 26, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // ── Crop-Toggle (unten mitte, über dem Sheet) ───────
+                      Positioned(
+                        bottom: 12, left: 0, right: 0,
+                        child: Center(
+                          child: Material(
+                            color: _isCropMode
+                                ? Colors.blueAccent
+                                : (_istDunkel
+                                    ? Colors.grey.shade800.withValues(alpha: 0.9)
+                                    : Colors.white.withValues(alpha: 0.9)),
+                            elevation: 4,
+                            borderRadius: BorderRadius.circular(24),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(24),
+                              onTap: _isSaving ? null : _toggleCropMode,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 20, vertical: 10),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _isCropMode
+                                          ? Icons.crop_free
+                                          : Icons.crop_free_outlined,
+                                      size: 20,
+                                      color: _isCropMode
+                                          ? Colors.white
+                                          : (_istDunkel
+                                              ? Colors.white
+                                              : Colors.black87),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _isCropMode
+                                          ? _t('crop_done')
+                                          : _t('crop'),
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: _isCropMode
+                                            ? Colors.white
+                                            : (_istDunkel
+                                                ? Colors.white
+                                                : Colors.black87),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Sheet ────────────────────────────────────────────────
+                if (!_isLoading)
+                  _buildSheet(settings),
+              ],
+            ),  // Column
+          ),  // SafeArea
+        ),  // Scaffold
+      ),  // AnnotatedRegion
+    );  // PopScope
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1155,9 +1158,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // MeasureSize – misst einmalig die Größe eines Widgets
-// ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 
 typedef OnWidgetSizeChange = void Function(Size size);
 
@@ -1188,9 +1191,9 @@ class _MeasureSizeState extends State<MeasureSize> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // ISOLATE
-// ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 
 class _SaveParams {
   final Uint8List baseImageBytes;
@@ -1233,9 +1236,9 @@ _SaveResult _saveInBackground(_SaveParams p) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // CROP-PAINTER
-// ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 
 enum _DragType {
   topLeft, topRight, bottomLeft, bottomRight,
@@ -1310,7 +1313,8 @@ class _CropPainter extends CustomPainter {
     // Handles
     final fill   = Paint()..color = Colors.white..style = PaintingStyle.fill;
     final border = Paint()..color = Colors.cyanAccent
-        ..style = PaintingStyle.stroke..strokeWidth = 2;
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
     for (final p in [
       cropRect.topLeft, cropRect.topRight,
       cropRect.bottomLeft, cropRect.bottomRight,
@@ -1330,9 +1334,9 @@ class _CropPainter extends CustomPainter {
       o.cropRect != cropRect || o.fullSize != fullSize;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 // BildVollbildScreen
-// ═══════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
 
 class BildVollbildResult {
   const BildVollbildResult();
