@@ -112,7 +112,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   static const double   _handleSize          = 28.0;
   static const Duration _debounceDelay       = Duration(milliseconds: 80);
   // Randabstand für Crop-Vorschau (in Bildschirm-Pixeln)
-  static const double _cropPreviewMargin = 24.0;
+  // Groß genug, damit das Bild nie den Bildschirmrand berührt und
+  // Android-Gesten-Bereiche nicht versehentlich getriggert werden.
+  static const double _cropPreviewMargin = 40.0;
 
   // ─────────────────────────────────────────────────────────────────────────
   // LIFECYCLE
@@ -356,11 +358,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _zoomController.value = m;
   }
 
-  double _calcZoomOutScale() {
-    // 80% der Standard-Größe → sichtbarer Rahmen rundherum
-    return 0.75;
-  }
-
   // ─────────────────────────────────────────────────────────────────────────
   // RESET
   // ─────────────────────────────────────────────────────────────────────────
@@ -396,7 +393,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       _saturation   = 1.0;
       _isCropMode   = false;
       _activeHandle = null;
-      _hasChanges   = true;
+      // Reset auf Original = keine ungespeicherten Änderungen
+      _hasChanges   = false;
     });
   }
 
@@ -891,6 +889,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     // Bestimme ob Buttons aktiv sind:
     // ausgegraut wenn Sheet eingezogen ODER Speichern läuft ODER Crop-Mode
     final btnsActive = _sheetVisible && !_isSaving && !_isCropMode;
+    // SafeArea-Bottom: Platz für Navigationsleiste / Gesten-Zone
+    final bottomPad = MediaQuery.of(context).padding.bottom;
 
     return GestureDetector(
       onVerticalDragStart:  _onSheetDragStart,
@@ -899,7 +899,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
-        height: _sheetCurrentH,
+        // Extra Höhe für SafeArea-Bottom einrechnen
+        height: _sheetCurrentH + bottomPad,
         decoration: BoxDecoration(
           color: _istDunkel ? const Color(0xFF1C1C1E) : Colors.white,
           border: Border(
@@ -945,97 +946,80 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                       if (!_sheetMeasured) {
                         final fullH = size.height + 20 + _sheetCollapsedH;
                         setState(() {
-                          _sheetExpandedH  = fullH.clamp(120.0, 300.0);
+                          _sheetExpandedH  = fullH.clamp(120.0, 260.0);
                           _sheetCurrentH   = _sheetExpandedH;
                           _sheetMeasured   = true;
                         });
                       }
                     },
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                      padding: EdgeInsets.fromLTRB(12, 0, 12, 8 + bottomPad),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // ── ZOOM-BEREICH ─────────────────────────────────────
-                          _sectionHeader(_t('zoom')),
-                          _row(<Widget>[
-                            _sheetBtn(
-                              icon: Icons.zoom_out_map,
-                              color: Colors.blueAccent,
-                              tooltip: _t('zoom_out'),
-                              active: btnsActive,
-                              onTap: () => _applyZoom(_calcZoomOutScale()),
-                            ),
-                            _sheetBtn(
-                              icon: Icons.fit_screen,
-                              color: Colors.blueAccent,
-                              tooltip: _t('fit_to_screen'),
-                              active: btnsActive,
-                              onTap: () => _applyZoom(1.0),
-                            ),
-                            _sheetBtn(
-                              icon: Icons.crop_original,
-                              color: Colors.blueAccent,
-                              tooltip: _t('reset_zoom'),
-                              active: btnsActive,
-                              onTap: _resetZoom,
-                            ),
-                          ]),
-                          _divider(),
-
-                          // ── FARBE ────────────────────────────────────────────
+                          // ── FARBE: alle 3 Slider in einer Zeile ──────────────
                           _sectionHeader(_t('color')),
-                          _row(<Widget>[
-                            _slider('brightness', Icons.wb_sunny_outlined,
+                          Row(
+                            children: [
+                              Expanded(child: _sliderCompact(
+                                'brightness', Icons.wb_sunny_outlined,
                                 _brightness, _onBrightnessChanged, settings,
-                                active: btnsActive),
-                            _slider('contrast', Icons.contrast_outlined,
+                                active: btnsActive,
+                              )),
+                              Expanded(child: _sliderCompact(
+                                'contrast', Icons.contrast_outlined,
                                 _contrast, _onContrastChanged, settings,
-                                active: btnsActive),
-                            _slider('saturation', Icons.color_lens_outlined,
+                                active: btnsActive,
+                              )),
+                              Expanded(child: _sliderCompact(
+                                'saturation', Icons.color_lens_outlined,
                                 _saturation, _onSaturationChanged, settings,
-                                active: btnsActive),
-                          ]),
+                                active: btnsActive,
+                              )),
+                            ],
+                          ),
                           _divider(),
 
-                          // ── DREHEN ───────────────────────────────────────────
-                          _sectionHeader(_t('rotate')),
-                          _row(<Widget>[
-                            _sheetBtn(
-                              icon: Icons.rotate_left,
-                              color: _istDunkel ? Colors.white70 : Colors.black87,
-                              tooltip: _t('rotate_left'),
-                              active: btnsActive,
-                              onTap: _rotateLeft,
-                            ),
-                            _sheetBtn(
-                              icon: Icons.rotate_right,
-                              color: _istDunkel ? Colors.white70 : Colors.black87,
-                              tooltip: _t('rotate_right'),
-                              active: btnsActive,
-                              onTap: _rotateRight,
-                            ),
-                          ]),
-                          _divider(),
-
-                          // ── ZURÜCKSETZEN ─────────────────────────────────────
-                          _sectionHeader(_t('reset')),
-                          _row(<Widget>[
-                            _sheetBtn(
-                              icon: Icons.tune_outlined,
-                              color: Colors.orangeAccent,
-                              tooltip: _t('reset_all'),
-                              active: btnsActive,
-                              onTap: _resetSlidersOnly,
-                            ),
-                            _sheetBtn(
-                              icon: Icons.restore,
-                              color: Colors.redAccent,
-                              tooltip: _t('reset_to_original'),
-                              active: btnsActive,
-                              onTap: _resetToOriginal,
-                            ),
-                          ]),
+                          // ── AKTIONEN: Drehen, Zoom, Reset in einer Zeile ─────
+                          _sectionHeader(_t('actions')),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _iconLabelBtn(
+                                icon: Icons.rotate_left,
+                                label: _t('rotate_left'),
+                                active: btnsActive,
+                                onTap: _rotateLeft,
+                              ),
+                              _iconLabelBtn(
+                                icon: Icons.rotate_right,
+                                label: _t('rotate_right'),
+                                active: btnsActive,
+                                onTap: _rotateRight,
+                              ),
+                              _iconLabelBtn(
+                                icon: Icons.fit_screen,
+                                label: _t('fit_to_screen'),
+                                active: btnsActive,
+                                onTap: () => _applyZoom(1.0),
+                              ),
+                              _iconLabelBtn(
+                                icon: Icons.tune_outlined,
+                                label: _t('reset_all'),
+                                color: Colors.orangeAccent,
+                                active: btnsActive,
+                                onTap: _resetSlidersOnly,
+                              ),
+                              _iconLabelBtn(
+                                icon: Icons.restore,
+                                label: _t('reset_to_original'),
+                                color: Colors.redAccent,
+                                active: btnsActive,
+                                onTap: _resetToOriginal,
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -1065,39 +1049,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _row(List<Widget> children) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(
-        children.length,
-        (i) => Flexible(
-          fit: FlexFit.loose,
-          child: Align(
-            alignment: Alignment.center,
-            child: children[i],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _sheetBtn({
-    required IconData icon,
-    required Color color,
-    required String tooltip,
-    required bool active,
-    required VoidCallback onTap,
-  }) {
-    final effectiveColor = active ? color : Colors.grey.shade500;
-    return IconButton(
-      icon: Icon(icon, color: effectiveColor),
-      onPressed: active ? onTap : null,
-      tooltip: tooltip,
-      splashRadius: 22,
-    );
-  }
-
   Widget _divider() => SizedBox(
     height: 24,
     child: Center(
@@ -1109,7 +1060,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     ),
   );
 
-  Widget _slider(
+  /// Kompakter Slider für die 3-Spalten-Farb-Zeile:
+  /// Icon + kurzer Label oben, Slider darunter – passt in Expanded.
+  Widget _sliderCompact(
     String key,
     IconData icon,
     double value,
@@ -1119,21 +1072,27 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }) {
     return Column(mainAxisSize: MainAxisSize.min, children: [
       Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 14,
-            color: active ? Colors.grey : Colors.grey.shade600),
+        Icon(icon, size: 13,
+            color: active
+                ? (_istDunkel ? Colors.white60 : Colors.grey.shade600)
+                : Colors.grey.shade500),
         const SizedBox(width: 3),
         Text(
           _t(key),
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 10,
             color: active
                 ? (_istDunkel ? Colors.white70 : Colors.black87)
                 : Colors.grey.shade500,
           ),
         ),
       ]),
-      SizedBox(
-        width: 145,
+      SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          trackHeight: 2,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+        ),
         child: Slider(
           value: value,
           min: 0.0, max: 2.0, divisions: 100,
@@ -1144,6 +1103,36 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         ),
       ),
     ]);
+  }
+
+  /// Icon + kleiner Label-Text, vertikal gestapelt – für Aktions-Zeile.
+  Widget _iconLabelBtn({
+    required IconData icon,
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    final col = active
+        ? (color ?? (_istDunkel ? Colors.white70 : Colors.black87))
+        : Colors.grey.shade500;
+    return InkWell(
+      onTap: active ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 22, color: col),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: TextStyle(fontSize: 9, color: col),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+          ),
+        ]),
+      ),
+    );
   }
 
   Widget _circleButton({
