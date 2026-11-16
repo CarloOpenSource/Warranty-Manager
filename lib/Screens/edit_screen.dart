@@ -213,7 +213,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       _brightness = (data['brightness'] as num?)?.toDouble() ?? 1.0;
       _contrast   = (data['contrast']   as num?)?.toDouble() ?? 1.0;
       _saturation = (data['saturation'] as num?)?.toDouble() ?? 1.0;
-      _hasChanges = true;
+      // Kein _hasChanges=true hier: geladene Einstellungen sind keine
+      // "ungespeicherte Änderung", sonst poppt die
+      // "Verwerfen?"-Abfrage sofort beim Öffnen.
     } catch (e) {
       debugPrint('_loadSettingsForImage FEHLER: $e');
     }
@@ -299,7 +301,27 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     // und die Bild-Offsets exakt stimmen und die Handles korrekt sitzen.
     _zoomController.value = Matrix4.identity();
     _currentZoom = 1.0;
+    // Crop-Rect etwas einrücken, damit das Bild den Bildschirmrand
+    // nicht berührt und der Nutzer vernünftig zuschneiden kann.
+    if (_baseDisplayImage != null) {
+      final m = _cropMarginPx();
+      _cropRect = Rect.fromLTWH(
+        m, m,
+        _baseDisplayImage!.width.toDouble()  - 2 * m,
+        _baseDisplayImage!.height.toDouble() - 2 * m,
+      );
+    }
     setState(() => _isCropMode = true);
+  }
+
+  /// Abstand des Crop-Rects zum Bildschirmrand (in Bild-Pixeln).
+  /// 24 Screen-Pixel, aber nie mehr als 6% der kürzeren Bildseite,
+  /// damit es auch bei kleinen Bildern nicht zu weit nach innen geht.
+  double _cropMarginPx() {
+    final s = _renderScale > 0 ? _renderScale : 1.0;
+    final byScreen = 24.0 / s;
+    final byPct    = math.min(_displayWidth, _displayHeight) * 0.06;
+    return math.min(byScreen, byPct);
   }
 
   void _exitCropMode() {
@@ -529,9 +551,14 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       case _DragType.left:   l   = p.dx; break;
       case _DragType.right:  ri  = p.dx; break;
     }
-    l   = l.clamp(0.0, _displayWidth  - 20.0);
+    // Crop-Rect darf nicht über den Bildschirmrand hinausgehen.
+    // Randabstand = _cropMarginPx (in Bild-Pixeln), mindestens 20px.
+    final m = _cropMarginPx().clamp(20.0, double.infinity);
+    final maxL = _displayWidth.toDouble()  - m;
+    final maxT = _displayHeight.toDouble() - m;
+    l   = l.clamp(m, maxL);
     ri  = ri.clamp(l + 20.0, _displayWidth.toDouble());
-    top = top.clamp(0.0, _displayHeight - 20.0);
+    top = top.clamp(m, maxT);
     b   = b.clamp(top + 20.0, _displayHeight.toDouble());
     return Rect.fromLTRB(l, top, ri, b);
   }
@@ -605,9 +632,13 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                             : LayoutBuilder(builder: (ctx, constraints) {
                                 final imgW  = _displayWidth.toDouble();
                                 final imgH  = _displayHeight.toDouble();
+                                // Im Crop-Mode immer einen Rand einhalten,
+                                // damit das Bild den Bildschirmrand nicht
+                                // berührt und der Nutzer es zuschneiden kann.
+                                final pad = _isCropMode ? 24.0 : 0.0;
                                 final scale = math.min(
-                                  constraints.maxWidth  / imgW,
-                                  constraints.maxHeight / imgH,
+                                  (constraints.maxWidth  - pad * 2) / imgW,
+                                  (constraints.maxHeight - pad * 2) / imgH,
                                 );
                                 final fitW = imgW * scale;
                                 final fitH = imgH * scale;
@@ -943,85 +974,85 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                     },
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-                      child: Wrap(
-                        spacing: 2,
-                        runSpacing: 4,
-                        alignment: WrapAlignment.center,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          // Zoom raus (sichtbarer Rahmen)
-                          _sheetBtn(
-                            icon: Icons.zoom_out_map,
-                            color: Colors.blueAccent,
-                            tooltip: _t('zoom_out'),
-                            active: btnsActive,
-                            onTap: () => _applyZoom(_calcZoomOutScale()),
-                          ),
-                          // Zoom auf 1:1
-                          _sheetBtn(
-                            icon: Icons.fit_screen,
-                            color: Colors.blueAccent,
-                            tooltip: _t('fit_to_screen'),
-                            active: btnsActive,
-                            onTap: () => _applyZoom(1.0),
-                          ),
-                          // Zoom zurücksetzen
-                          _sheetBtn(
-                            icon: Icons.crop_original,
-                            color: Colors.blueAccent,
-                            tooltip: _t('reset_zoom'),
-                            active: btnsActive,
-                            onTap: _resetZoom,
-                          ),
+                          // ── Zoom ────────────────────────────────────────────
+                          _row(<Widget>[
+                            _sheetBtn(
+                              icon: Icons.zoom_out_map,
+                              color: Colors.blueAccent,
+                              tooltip: _t('zoom_out'),
+                              active: btnsActive,
+                              onTap: () => _applyZoom(_calcZoomOutScale()),
+                            ),
+                            _sheetBtn(
+                              icon: Icons.fit_screen,
+                              color: Colors.blueAccent,
+                              tooltip: _t('fit_to_screen'),
+                              active: btnsActive,
+                              onTap: () => _applyZoom(1.0),
+                            ),
+                            _sheetBtn(
+                              icon: Icons.crop_original,
+                              color: Colors.blueAccent,
+                              tooltip: _t('reset_zoom'),
+                              active: btnsActive,
+                              onTap: _resetZoom,
+                            ),
+                          ]),
                           _divider(),
 
-                          // Helligkeit
-                          _slider('brightness', Icons.wb_sunny_outlined,
-                              _brightness, _onBrightnessChanged, settings,
-                              active: btnsActive),
-                          // Kontrast
-                          _slider('contrast', Icons.contrast_outlined,
-                              _contrast, _onContrastChanged, settings,
-                              active: btnsActive),
-                          // Sättigung
-                          _slider('saturation', Icons.color_lens_outlined,
-                              _saturation, _onSaturationChanged, settings,
-                              active: btnsActive),
+                          // ── Farbe ───────────────────────────────────────────
+                          _row(<Widget>[
+                            _slider('brightness', Icons.wb_sunny_outlined,
+                                _brightness, _onBrightnessChanged, settings,
+                                active: btnsActive),
+                            _slider('contrast', Icons.contrast_outlined,
+                                _contrast, _onContrastChanged, settings,
+                                active: btnsActive),
+                            _slider('saturation', Icons.color_lens_outlined,
+                                _saturation, _onSaturationChanged, settings,
+                                active: btnsActive),
+                          ]),
                           _divider(),
 
-                          // Rotation links
-                          _sheetBtn(
-                            icon: Icons.rotate_left,
-                            color: _istDunkel ? Colors.white70 : Colors.black87,
-                            tooltip: _t('rotate_left'),
-                            active: btnsActive,
-                            onTap: _rotateLeft,
-                          ),
-                          // Rotation rechts
-                          _sheetBtn(
-                            icon: Icons.rotate_right,
-                            color: _istDunkel ? Colors.white70 : Colors.black87,
-                            tooltip: _t('rotate_right'),
-                            active: btnsActive,
-                            onTap: _rotateRight,
-                          ),
+                          // ── Drehen ──────────────────────────────────────────
+                          _row(<Widget>[
+                            _sheetBtn(
+                              icon: Icons.rotate_left,
+                              color: _istDunkel ? Colors.white70 : Colors.black87,
+                              tooltip: _t('rotate_left'),
+                              active: btnsActive,
+                              onTap: _rotateLeft,
+                            ),
+                            _sheetBtn(
+                              icon: Icons.rotate_right,
+                              color: _istDunkel ? Colors.white70 : Colors.black87,
+                              tooltip: _t('rotate_right'),
+                              active: btnsActive,
+                              onTap: _rotateRight,
+                            ),
+                          ]),
                           _divider(),
 
-                          // Regler zurücksetzen
-                          _sheetBtn(
-                            icon: Icons.tune_outlined,
-                            color: Colors.orangeAccent,
-                            tooltip: _t('reset_all'),
-                            active: btnsActive,
-                            onTap: _resetSlidersOnly,
-                          ),
-                          // Original herstellen
-                          _sheetBtn(
-                            icon: Icons.restore,
-                            color: Colors.redAccent,
-                            tooltip: _t('reset_to_original'),
-                            active: btnsActive,
-                            onTap: _resetToOriginal,
-                          ),
+                          // ── Zurücksetzen ────────────────────────────────────
+                          _row(<Widget>[
+                            _sheetBtn(
+                              icon: Icons.tune_outlined,
+                              color: Colors.orangeAccent,
+                              tooltip: _t('reset_all'),
+                              active: btnsActive,
+                              onTap: _resetSlidersOnly,
+                            ),
+                            _sheetBtn(
+                              icon: Icons.restore,
+                              color: Colors.redAccent,
+                              tooltip: _t('reset_to_original'),
+                              active: btnsActive,
+                              onTap: _resetToOriginal,
+                            ),
+                          ]),
                         ],
                       ),
                     ),
@@ -1059,6 +1090,24 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       color: _istDunkel ? Colors.grey.shade700 : Colors.grey.shade300,
     ),
   );
+
+  /// Zeigt alle Widgets einer Zeile nebeneinander, gleichmäßig verteilt,
+  /// damit die Bedienelemente schön geordnet in Spalten liegen.
+  Widget _row(List<Widget> children) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(
+        children.length,
+        (i) => Flexible(
+          fit: FlexFit.loose,
+          child: Align(
+            alignment: Alignment.center,
+            child: children[i],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _slider(
     String key,
