@@ -111,6 +111,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   static const int      _maxDisplayDimension = 1024;
   static const double   _handleSize          = 28.0;
   static const Duration _debounceDelay       = Duration(milliseconds: 80);
+  // Randabstand für Crop-Vorschau (in Bildschirm-Pixeln)
+  static const double _cropPreviewMargin = 24.0;
 
   // ─────────────────────────────────────────────────────────────────────────
   // LIFECYCLE
@@ -208,9 +210,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       _brightness = (data['brightness'] as num?)?.toDouble() ?? 1.0;
       _contrast   = (data['contrast']   as num?)?.toDouble() ?? 1.0;
       _saturation = (data['saturation'] as num?)?.toDouble() ?? 1.0;
-      // Kein _hasChanges=true hier: geladene Einstellungen sind keine
-      // "ungespeicherte Änderung", sonst poppt die
-      // "Verwerfen?"-Abfrage sofort beim Öffnen.
+      // Geladene Einstellungen zählen NICHT als Änderungen
+      _hasChanges = false;
     } catch (e) {
       debugPrint('_loadSettingsForImage FEHLER: $e');
     }
@@ -295,27 +296,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     // Im Crop-Mode Zoom auf Identity zurücksetzen, damit _renderScale
     // und die Bild-Offsets exakt stimmen und die Handles korrekt sitzen.
     _zoomController.value = Matrix4.identity();
-    // Crop-Rect etwas einrücken, damit das Bild den Bildschirmrand
-    // nicht berührt und der Nutzer vernünftig zuschneiden kann.
-    if (_baseDisplayImage != null) {
-      final m = _cropMarginPx();
-      _cropRect = Rect.fromLTWH(
-        m, m,
-        _baseDisplayImage!.width.toDouble()  - 2 * m,
-        _baseDisplayImage!.height.toDouble() - 2 * m,
-      );
-    }
     setState(() => _isCropMode = true);
-  }
-
-  /// Abstand des Crop-Rects zum Bildschirmrand (in Bild-Pixeln).
-  /// 24 Screen-Pixel, aber nie mehr als 6% der kürzeren Bildseite,
-  /// damit es auch bei kleinen Bildern nicht zu weit nach innen geht.
-  double _cropMarginPx() {
-    final s = _renderScale > 0 ? _renderScale : 1.0;
-    final byScreen = 24.0 / s;
-    final byPct    = math.min(_displayWidth, _displayHeight) * 0.06;
-    return math.min(byScreen, byPct);
   }
 
   void _exitCropMode() {
@@ -555,11 +536,19 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     return Rect.fromLTRB(l, top, ri, b);
   }
 
+  /// Berechnet den Randabstand für Crop-Handles in Bild-Pixeln.
+  /// Basiert auf 24 Screen-Pixeln, skaliert mit _renderScale.
+  double _cropMarginPx() {
+    final s = _renderScale > 0 ? _renderScale : 1.0;
+    return (24.0 / s).clamp(20.0, double.infinity);
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // ZURÜCK
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<bool> _onWillPop() async {
+    // Nur fragen, wenn ECHTE Änderungen vorliegen
     if (!_hasChanges) return true;
     final r = await showDialog<bool>(
       context: context,
@@ -606,243 +595,240 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         child: Scaffold(
           backgroundColor: _istDunkel ? Colors.black : Colors.white,
           // Kein bottomNavigationBar – das Sheet liegt direkt im Stack
-          body: SafeArea(
-            bottom: false,
-            child: Column(
-              children: [
-                // ── Bildbereich ──────────────────────────────────────────
-                Expanded(
-                  child: Stack(
-                    children: [
-                      // Vollflächiges Bild mit Zoom/Pan
-                      if (_isLoading)
-                        const Center(child: CircularProgressIndicator())
-                      else
-                        Positioned.fill(
-                          child: (_displayBytes == null ||
-                                  _displayWidth == 0 ||
-                                  _displayHeight == 0)
-                              ? const SizedBox.shrink()
-                              : LayoutBuilder(builder: (ctx, constraints) {
-                                  final imgW  = _displayWidth.toDouble();
-                                  final imgH  = _displayHeight.toDouble();
-                                  // Im Crop-Mode immer einen Rand einhalten,
-                                  // damit das Bild den Bildschirmrand nicht
-                                  // berührt und der Nutzer es zuschneiden kann.
-                                  final pad = _isCropMode ? 24.0 : 0.0;
-                                  final scale = math.min(
-                                    (constraints.maxWidth  - pad * 2) / imgW,
-                                    (constraints.maxHeight - pad * 2) / imgH,
-                                  );
-                                  final fitW = imgW * scale;
-                                  final fitH = imgH * scale;
-                                  final offX = (constraints.maxWidth  - fitW) / 2;
-                                  final offY = (constraints.maxHeight - fitH) / 2;
+          body: Column(
+            children: [
+              // ── Bildbereich ──────────────────────────────────────────
+              Expanded(
+                child: Stack(
+                  children: [
+                    // Vollflächiges Bild mit Zoom/Pan
+                    if (_isLoading)
+                      const Center(child: CircularProgressIndicator())
+                    else
+                      Positioned.fill(
+                        child: (_displayBytes == null ||
+                                _displayWidth == 0 ||
+                                _displayHeight == 0)
+                            ? const SizedBox.shrink()
+                            : LayoutBuilder(builder: (ctx, constraints) {
+                                final imgW  = _displayWidth.toDouble();
+                                final imgH  = _displayHeight.toDouble();
 
-                                  // Layout-Werte für Crop-Koordinaten cachen
-                                  _renderScale  = scale;
-                                  _imageOffsetX = offX;
-                                  _imageOffsetY = offY;
+                                // Berechne Skalierung MIT Randabstand für Crop-Modus
+                                // Damit das Bild nie den Bildschirmrand berührt
+                                final pad = _isCropMode ? _cropPreviewMargin : 0.0;
+                                final scale = math.min(
+                                  (constraints.maxWidth  - pad * 2) / imgW,
+                                  (constraints.maxHeight - pad * 2) / imgH,
+                                );
+                                final fitW = imgW * scale;
+                                final fitH = imgH * scale;
+                                final offX = (constraints.maxWidth  - fitW) / 2;
+                                final offY = (constraints.maxHeight - fitH) / 2;
 
-                                  return Stack(children: [
-                                    // ── Schwarzer Hintergrund ──
-                                    Positioned.fill(
-                                      child: ColoredBox(
-                                        color: _istDunkel
-                                            ? Colors.black
-                                            : Colors.grey.shade200,
-                                      ),
+                                // Layout-Werte für Crop-Koordinaten cachen
+                                _renderScale  = scale;
+                                _imageOffsetX = offX;
+                                _imageOffsetY = offY;
+
+                                return Stack(children: [
+                                  // ── Schwarzer Hintergrund ──
+                                  Positioned.fill(
+                                    child: ColoredBox(
+                                      color: _istDunkel
+                                          ? Colors.black
+                                          : Colors.grey.shade200,
                                     ),
+                                  ),
 
-                                    // ── Bild mit Zoom/Pan ──
-                                    // Im Crop-Mode: panEnabled=false, damit
-                                    // Drag-Gesten zum Crop-Overlay gehen.
-                                    // Im Normal-Mode: voller Zoom/Pan.
-                                    Positioned(
-                                      left: offX, top: offY,
-                                      width: fitW, height: fitH,
-                                      child: _isCropMode
-                                          // Im Crop-Mode: kein InteractiveViewer,
-                                          // damit Pointer-Events ans Crop-Overlay
-                                          // weitergegeben werden
-                                          ? Image.memory(
+                                  // ── Bild mit Zoom/Pan ──
+                                  // Im Crop-Mode: panEnabled=false, damit
+                                  // Drag-Gesten zum Crop-Overlay gehen.
+                                  // Im Normal-Mode: voller Zoom/Pan.
+                                  Positioned(
+                                    left: offX, top: offY,
+                                    width: fitW, height: fitH,
+                                    child: _isCropMode
+                                        // Im Crop-Mode: kein InteractiveViewer,
+                                        // damit Pointer-Events ans Crop-Overlay
+                                        // weitergegeben werden
+                                        ? Image.memory(
+                                            _displayBytes!,
+                                            fit: BoxFit.fill,
+                                            gaplessPlayback: true,
+                                          )
+                                        : InteractiveViewer(
+                                            panEnabled: true,
+                                            minScale: 0.25,
+                                            maxScale: 4.0,
+                                            transformationController:
+                                                _zoomController,
+                                            child: Image.memory(
                                               _displayBytes!,
                                               fit: BoxFit.fill,
                                               gaplessPlayback: true,
-                                            )
-                                          : InteractiveViewer(
-                                              panEnabled: true,
-                                              minScale: 0.25,
-                                              maxScale: 4.0,
-                                              transformationController:
-                                                  _zoomController,
-                                              child: Image.memory(
-                                                _displayBytes!,
-                                                fit: BoxFit.fill,
-                                                gaplessPlayback: true,
-                                              ),
                                             ),
-                                    ),
+                                          ),
+                                  ),
 
-                                    // ── Crop-Overlay ──
-                                    // Das Listener-Widget spannt den gesamten
-                                    // Stack auf, um Pointer-Events zu fangen.
-                                    // Die Koordinaten werden relativ zum
-                                    // Bild-Offset umgerechnet (in _onPanStart/Update).
-                                    if (_isCropMode)
-                                      Positioned.fill(
-                                        child: Listener(
-                                          onPointerDown:  _onPanStart,
-                                          onPointerMove:  _onPanUpdate,
-                                          onPointerUp:    _onPanEnd,
-                                          behavior: HitTestBehavior.translucent,
-                                          child: CustomPaint(
-                                            painter: _CropPainter(
-                                              // Crop-Rect in Screen-Koordinaten
-                                              // (relativ zum Stack, nicht zum Bild):
-                                              cropRect: Rect.fromLTWH(
-                                                offX + _cropRect.left   * scale,
-                                                offY + _cropRect.top    * scale,
-                                                _cropRect.width  * scale,
-                                                _cropRect.height * scale,
-                                              ),
-                                              // Gesamter Bereich für Abdunkelung
-                                              fullSize: Size(
-                                                constraints.maxWidth,
-                                                constraints.maxHeight,
-                                              ),
-                                              handleSize: _handleSize,
-                                              isDark: _istDunkel,
+                                  // ── Crop-Overlay ──
+                                  // Das Listener-Widget spannt den gesamten
+                                  // Stack auf, um Pointer-Events zu fangen.
+                                  // Die Koordinaten werden relativ zum
+                                  // Bild-Offset umgerechnet (in _onPanStart/Update).
+                                  if (_isCropMode)
+                                    Positioned.fill(
+                                      child: Listener(
+                                        onPointerDown:  _onPanStart,
+                                        onPointerMove:  _onPanUpdate,
+                                        onPointerUp:    _onPanEnd,
+                                        behavior: HitTestBehavior.translucent,
+                                        child: CustomPaint(
+                                          painter: _CropPainter(
+                                            // Crop-Rect in Screen-Koordinaten
+                                            // (relativ zum Stack, nicht zum Bild):
+                                            cropRect: Rect.fromLTWH(
+                                              offX + _cropRect.left   * scale,
+                                              offY + _cropRect.top    * scale,
+                                              _cropRect.width  * scale,
+                                              _cropRect.height * scale,
                                             ),
+                                            // Gesamter Bereich für Abdunkelung
+                                            fullSize: Size(
+                                              constraints.maxWidth,
+                                              constraints.maxHeight,
+                                            ),
+                                            handleSize: _handleSize,
+                                            isDark: _istDunkel,
                                           ),
                                         ),
                                       ),
-                                  ]);
-                                }),
-                        ),
+                                    ),
+                                ]);
+                              }),
+                      ),
 
-                      // ── Schließen (links oben) ──────────────────────────
-                      Positioned(
-                        top: 0, left: 0,
-                        child: SafeArea(
-                          child: Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: _circleButton(
-                              color: _istDunkel
-                                  ? Colors.grey.shade800.withValues(alpha: 0.85)
-                                  : Colors.grey.shade100.withValues(alpha: 0.85),
-                              onTap: _isSaving ? null : () async {
-                                final ok = await _onWillPop();
-                                if (ok && mounted) {
-                                  // ignore: use_build_context_synchronously
-                                  Navigator.pop(context);
-                                }
-                              },
-                              child: Icon(
-                                Icons.close, size: 26,
-                                color: _istDunkel ? Colors.white : Colors.black87,
-                              ),
+                    // ── Schließen (links oben) ──────────────────────────
+                    Positioned(
+                      top: 0, left: 0,
+                      child: SafeArea(
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: _circleButton(
+                            color: _istDunkel
+                                ? Colors.grey.shade800.withValues(alpha: 0.85)
+                                : Colors.grey.shade100.withValues(alpha: 0.85),
+                            onTap: _isSaving ? null : () async {
+                              final ok = await _onWillPop();
+                              if (ok && mounted) {
+                                // ignore: use_build_context_synchronously
+                                Navigator.pop(context);
+                              }
+                            },
+                            child: Icon(
+                              Icons.close, size: 26,
+                              color: _istDunkel ? Colors.white : Colors.black87,
                             ),
                           ),
                         ),
                       ),
+                    ),
 
-                      // ── Speichern (rechts oben) ─────────────────────────
-                      Positioned(
-                        top: 0, right: 0,
-                        child: SafeArea(
-                          child: Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: _circleButton(
-                              color: _istDunkel
-                                  ? Colors.green.shade700
-                                  : Colors.green.shade600,
-                              onTap: _isSaving ? null : _saveAndExit,
-                              child: _isSaving
-                                  ? const SizedBox(
-                                      width: 48, height: 48,
-                                      child: Center(
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 3,
-                                          valueColor: AlwaysStoppedAnimation(
-                                              Colors.white),
-                                        ),
+                    // ── Speichern (rechts oben) ─────────────────────────
+                    Positioned(
+                      top: 0, right: 0,
+                      child: SafeArea(
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: _circleButton(
+                            color: _istDunkel
+                                ? Colors.green.shade700
+                                : Colors.green.shade600,
+                            onTap: _isSaving ? null : _saveAndExit,
+                            child: _isSaving
+                                ? const SizedBox(
+                                    width: 48, height: 48,
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 3,
+                                        valueColor: AlwaysStoppedAnimation(
+                                            Colors.white),
                                       ),
-                                    )
-                                  : const Icon(Icons.check,
-                                      size: 26, color: Colors.white),
-                            ),
+                                    ),
+                                  )
+                                : const Icon(Icons.check,
+                                    size: 26, color: Colors.white),
                           ),
                         ),
                       ),
+                    ),
 
-                      // ── Crop-Toggle (unten mitte, über dem Sheet) ───────
-                      Positioned(
-                        bottom: 12, left: 0, right: 0,
-                        child: Center(
-                          child: Material(
-                            color: _isCropMode
-                                ? Colors.blueAccent
-                                : (_istDunkel
-                                    ? Colors.grey.shade800.withValues(alpha: 0.9)
-                                    : Colors.white.withValues(alpha: 0.9)),
-                            elevation: 4,
+                    // ── Crop-Toggle (unten mitte, über dem Sheet) ───────
+                    Positioned(
+                      bottom: 12, left: 0, right: 0,
+                      child: Center(
+                        child: Material(
+                          color: _isCropMode
+                              ? Colors.blueAccent
+                              : (_istDunkel
+                                  ? Colors.grey.shade800.withValues(alpha: 0.9)
+                                  : Colors.white.withValues(alpha: 0.9)),
+                          elevation: 4,
+                          borderRadius: BorderRadius.circular(24),
+                          child: InkWell(
                             borderRadius: BorderRadius.circular(24),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(24),
-                              onTap: _isSaving ? null : _toggleCropMode,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 20, vertical: 10),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      _isCropMode
-                                          ? Icons.crop_free
-                                          : Icons.crop_free_outlined,
-                                      size: 20,
+                            onTap: _isSaving ? null : _toggleCropMode,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 10),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _isCropMode
+                                        ? Icons.crop_free
+                                        : Icons.crop_free_outlined,
+                                    size: 20,
+                                    color: _isCropMode
+                                        ? Colors.white
+                                        : (_istDunkel
+                                            ? Colors.white
+                                            : Colors.black87),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _isCropMode
+                                        ? _t('crop_done')
+                                        : _t('crop'),
+                                    style: TextStyle(
+                                      fontSize: 13,
                                       color: _isCropMode
                                           ? Colors.white
                                           : (_istDunkel
                                               ? Colors.white
                                               : Colors.black87),
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      _isCropMode
-                                          ? _t('crop_done')
-                                          : _t('crop'),
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: _isCropMode
-                                            ? Colors.white
-                                            : (_istDunkel
-                                                ? Colors.white
-                                                : Colors.black87),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              ),
 
-                // ── Sheet ────────────────────────────────────────────────
-                if (!_isLoading)
-                  _buildSheet(settings),
-              ],
-            ),  // Column
-          ),  // SafeArea
-        ),  // Scaffold
-      ),  // AnnotatedRegion
-    );  // PopScope
+              // ── Sheet ────────────────────────────────────────────────
+              if (!_isLoading)
+                _buildSheet(settings),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -970,7 +956,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // ── Zoom ────────────────────────────────────────────
+                          // ── ZOOM-BEREICH ─────────────────────────────────────
+                          _sectionHeader(_t('zoom')),
                           _row(<Widget>[
                             _sheetBtn(
                               icon: Icons.zoom_out_map,
@@ -996,7 +983,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                           ]),
                           _divider(),
 
-                          // ── Farbe ───────────────────────────────────────────
+                          // ── FARBE ────────────────────────────────────────────
+                          _sectionHeader(_t('color')),
                           _row(<Widget>[
                             _slider('brightness', Icons.wb_sunny_outlined,
                                 _brightness, _onBrightnessChanged, settings,
@@ -1010,7 +998,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                           ]),
                           _divider(),
 
-                          // ── Drehen ──────────────────────────────────────────
+                          // ── DREHEN ───────────────────────────────────────────
+                          _sectionHeader(_t('rotate')),
                           _row(<Widget>[
                             _sheetBtn(
                               icon: Icons.rotate_left,
@@ -1029,7 +1018,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                           ]),
                           _divider(),
 
-                          // ── Zurücksetzen ────────────────────────────────────
+                          // ── ZURÜCKSETZEN ─────────────────────────────────────
+                          _sectionHeader(_t('reset')),
                           _row(<Widget>[
                             _sheetBtn(
                               icon: Icons.tune_outlined,
@@ -1058,6 +1048,40 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _sectionHeader(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: _istDunkel ? Colors.grey.shade400 : Colors.grey.shade600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _row(List<Widget> children) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(
+        children.length,
+        (i) => Flexible(
+          fit: FlexFit.loose,
+          child: Align(
+            alignment: Alignment.center,
+            child: children[i],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _sheetBtn({
     required IconData icon,
     required Color color,
@@ -1075,32 +1099,15 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 
   Widget _divider() => SizedBox(
-    height: 36,
-    child: VerticalDivider(
-      thickness: 1,
-      indent: 4,
-      endIndent: 4,
-      color: _istDunkel ? Colors.grey.shade700 : Colors.grey.shade300,
+    height: 24,
+    child: Center(
+      child: Container(
+        height: 1,
+        width: double.infinity,
+        color: _istDunkel ? Colors.grey.shade700 : Colors.grey.shade300,
+      ),
     ),
   );
-
-  /// Zeigt alle Widgets einer Zeile nebeneinander, gleichmäßig verteilt,
-  /// damit die Bedienelemente schön geordnet in Spalten liegen.
-  Widget _row(List<Widget> children) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(
-        children.length,
-        (i) => Flexible(
-          fit: FlexFit.loose,
-          child: Align(
-            alignment: Alignment.center,
-            child: children[i],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _slider(
     String key,
@@ -1313,8 +1320,7 @@ class _CropPainter extends CustomPainter {
     // Handles
     final fill   = Paint()..color = Colors.white..style = PaintingStyle.fill;
     final border = Paint()..color = Colors.cyanAccent
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
+        ..style = PaintingStyle.stroke..strokeWidth = 2;
     for (final p in [
       cropRect.topLeft, cropRect.topRight,
       cropRect.bottomLeft, cropRect.bottomRight,
