@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart'; // Wichtig für dauerhaften lokalen Speicher
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../Services/settings_provider.dart';
@@ -27,9 +28,13 @@ class EditScreen extends StatefulWidget {
     try {
       final prefs = await SharedPreferences.getInstance();
       const String prefix = 'edit_settings_';
+      const String pristinePrefix = 'edit_pristine_backup_';
       final settings = <String, dynamic>{};
+      
       for (final key in prefs.getKeys()) {
-        if (key.startsWith(prefix)) settings[key] = prefs.getString(key);
+        if (key.startsWith(prefix) || key.startsWith(pristinePrefix)) {
+          settings[key] = prefs.getString(key);
+        }
       }
       if (settings.isEmpty) return null;
       return jsonEncode(settings);
@@ -43,9 +48,11 @@ class EditScreen extends StatefulWidget {
     try {
       final prefs = await SharedPreferences.getInstance();
       const String prefix = 'edit_settings_';
+      const String pristinePrefix = 'edit_pristine_backup_';
       final Map<String, dynamic> data = jsonDecode(jsonStr);
+      
       for (final entry in data.entries) {
-        if (entry.key.startsWith(prefix)) {
+        if (entry.key.startsWith(prefix) || entry.key.startsWith(pristinePrefix)) {
           await prefs.setString(entry.key, entry.value as String);
         }
       }
@@ -67,24 +74,24 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   double _brightness = 1.0;
   double _contrast   = 1.0;
   double _saturation = 1.0;
-  double _sharpness  = 1.0; // 1.0 = neutral, < 1.0 = weicher, > 1.0 = schärfer
+  double _sharpness  = 1.0;
 
   // ── Zustand ───────────────────────────────────────────────────────────────
   bool _isLoading     = true;
   bool _isSaving      = false;
   bool _hasChanges    = false;
   // ignore: unused_field
-  bool _isHighResMode = true; // Zeigt an, ob aktuell die volle Auflösung aktiv ist
+  bool _isHighResMode = true;
 
-  // ── Display-Puffer ────────────────────────────────────────────────        Uint8List? _displayBytes;
+  // ── Display-Puffer ────────────────────────────────────────────────────────
   Uint8List? _displayBytes;
   int _displayWidth  = 0;
   int _displayHeight = 0;
 
   // ── Arbeitsbilder ─────────────────────────────────────────────────────────
-  img.Image? _baseDisplayImage; // Volle Arbeitsauflösung (bis 1024px)
-  img.Image? _lowResBaseImage;  // Niedrige Auflösung für flüssige Live-Vorschau
-  img.Image? _originalBackup;   // Allererstes unbearbeitetes Originalbild
+  img.Image? _baseDisplayImage; 
+  img.Image? _lowResBaseImage;  
+  img.Image? _originalBackup;   
 
   // ── Layout-Cache ──────────────────────────────────────────────────────────
   double _renderScale  = 1.0;
@@ -98,26 +105,21 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   // ── Bottom-Sheet ──────────────────────────────────────────────────────────
   bool _sheetVisible = true;
 
-  // ── Debounce & 5-Sekunden High-Res Timer ──────────────────────────────────
+  // ── Debounce & Timer ──────────────────────────────────────────────────────
   Timer? _debounceTimer;
   Timer? _highResTimer;
   bool   _pendingUpdate = false;
-  int    _renderGeneration = 0; // Verhindert veraltete Isolate-Ergebnisse
+  int    _renderGeneration = 0;
 
   // ── Konstanten ────────────────────────────────────────────────────────────
   static const String   _prefsPrefix         = 'edit_settings_';
   static const String   _pristinePrefsPrefix = 'edit_pristine_backup_';
   static const int      _maxDisplayDimension = 1024;
-  static const int      _lowResMaxDimension  = 360; // Schnelle Vorschau-Auflösung
+  static const int      _lowResMaxDimension  = 360;
   static const double   _handleSize          = 28.0;
   static const Duration _debounceDelay       = Duration(milliseconds: 60);
   static const Duration _highResDelay        = Duration(seconds: 5);
-  // Standard-Randabstand (in Bildschirm-Pixeln) – verschwindet beim Reinzoomen
   static const double   _previewMargin       = 40.0;
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // LIFECYCLE
-  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -157,7 +159,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   String _t(String key) {
     final s = Provider.of<SettingsProvider>(context, listen: false);
     final res = getText(s.languageCode, key);
-    // Fallback falls 'sharpness' noch nicht in den Übersetzungen hinterlegt ist
     if (key == 'sharpness' && (res == key || res.isEmpty)) {
       return s.languageCode == 'en' ? 'Sharpness' : 'Schärfe';
     }
@@ -165,11 +166,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // DAUERHAFTES BACKUP DES ALLERERSTEN ORIGINALS
+  // LOKALES & PERMANENTES ORIGINAL-BACKUP (Cache-sicher & exportierbar)
   // ─────────────────────────────────────────────────────────────────────────
 
-  /// Erstellt beim allerersten Öffnen eine unveränderliche Kopie des Originals
-  /// (oder lädt diese, falls das Bild bereits früher bearbeitet & gespeichert wurde).
   Future<File> _getOrCreatePristineBackupFile(File currentFile) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -183,8 +182,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         }
       }
 
-      // Verzeichnis für dauerhafte Original-Backups neben dem System-Temp/App-Cache anlegen
-      final backupDir = Directory('${Directory.systemTemp.path}/edit_pristine_originals');
+      // Nutzen des dauerhaften Anwendungs-Dokumentenverzeichnisses statt des Caches
+      final appDir = await getApplicationDocumentsDirectory();
+      final backupDir = Directory('${appDir.path}/edit_pristine_originals');
       if (!await backupDir.exists()) {
         await backupDir.create(recursive: true);
       }
@@ -193,6 +193,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         '${backupDir.path}/pristine_${widget.originalPath.hashCode.abs()}.jpg',
       );
 
+      // Falls noch kein Backup existiert, das aktuelle (oder originale) Bild dorthin kopieren
       if (!await backupFile.exists() || await backupFile.length() == 0) {
         await currentFile.copy(backupFile.path);
       }
@@ -221,10 +222,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     return img.Image.from(decoded);
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // BILD LADEN & LOW-RES GENERIEREN
-  // ─────────────────────────────────────────────────────────────────────────
-
   void _updateLowResBase() {
     if (_baseDisplayImage == null) return;
     final bw = _baseDisplayImage!.width;
@@ -249,7 +246,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         throw FileSystemException('Datei nicht gefunden', widget.imageDataPath);
       }
 
-      // 1. Dauerhaftes Original-Backup sichern oder abrufen
+      // 1. Permanentes Backup im Dokumentenverzeichnis sicherstellen
       final pristineFile = await _getOrCreatePristineBackupFile(file);
 
       // 2. Aktuelles Arbeitsbild laden
@@ -258,9 +255,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       if (decoded == null) throw Exception('Bild nicht dekodierbar');
       final img.Image work = _resizeToWorkDimensions(decoded);
 
-      // 3. Allererstes Originalbild für Reset laden
+      // 3. Allererstes Originalbild für den Reset laden
       img.Image pristineWork;
-      if (pristineFile.path != file.path && await pristineFile.exists()) {
+      if (await pristineFile.exists()) {
         final pristineBytes = await pristineFile.readAsBytes();
         final pristineDecoded = img.decodeImage(pristineBytes);
         pristineWork = pristineDecoded != null
@@ -292,10 +289,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     }
     if (mounted) setState(() => _isLoading = false);
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // EINSTELLUNGEN
-  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _loadSettingsForImage() async {
     try {
@@ -330,11 +323,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // ANZEIGE AUFBAUEN (LOW-RES SOFORT -> HIGH-RES NACH 5 SEKUNDEN)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Rendert sofort mit dem kleinen Vorschaubild (ruckelfrei während Slider-Bewegung)
   void _rebuildDisplayLowRes() {
     final src = _lowResBaseImage ?? _baseDisplayImage;
     if (src == null) return;
@@ -348,14 +336,11 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     );
 
     _displayBytes  = Uint8List.fromList(img.encodeJpg(out, quality: 80));
-    // WICHTIG: _displayWidth / _displayHeight bleiben an den logischen Maßen
-    // von _baseDisplayImage ausgerichtet, damit Crop-Koordinaten exakt bleiben!
     _displayWidth  = _baseDisplayImage!.width;
     _displayHeight = _baseDisplayImage!.height;
     _isHighResMode = false;
   }
 
-  /// Synchrones High-Res Rendering (für Initialisierung, Rotation, Crop, Reset)
   void _rebuildDisplayHighResSync() {
     if (_baseDisplayImage == null) return;
     _highResTimer?.cancel();
@@ -374,7 +359,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _isHighResMode = true;
   }
 
-  /// Asynchrones High-Res Rendering im Hintergrund nach 5 Sekunden Inaktivität
   Future<void> _rebuildDisplayHighResAsync() async {
     if (_baseDisplayImage == null || !mounted) return;
     final gen = ++_renderGeneration;
@@ -414,9 +398,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _pendingUpdate = true;
     _debounceTimer?.cancel();
     _highResTimer?.cancel();
-    _renderGeneration++; // Laufende High-Res Jobs verwerfen
+    _renderGeneration++;
 
-    // 1. Sofortige (60ms) Low-Res Vorschau, damit nichts ruckelt
     _debounceTimer = Timer(_debounceDelay, () {
       if (_pendingUpdate && mounted) {
         _pendingUpdate = false;
@@ -426,7 +409,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       }
     });
 
-    // 2. Nach 5 Sekunden ohne weitere Änderung -> Original-Arbeitsauflösung laden
     _highResTimer = Timer(_highResDelay, () {
       if (mounted) {
         _rebuildDisplayHighResAsync();
@@ -438,10 +420,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   void _onContrastChanged(double v)   { _contrast   = v; _scheduleDisplayUpdate(); }
   void _onSaturationChanged(double v) { _saturation = v; _scheduleDisplayUpdate(); }
   void _onSharpnessChanged(double v)  { _sharpness  = v; _scheduleDisplayUpdate(); }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // ROTATION – PERMANENT EINBRENNEN
-  // ─────────────────────────────────────────────────────────────────────────
 
   void _applyRotation(int angleDeg) {
     if (_baseDisplayImage == null || _isSaving) return;
@@ -463,10 +441,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
   void _rotateLeft()  => _applyRotation(90);
   void _rotateRight() => _applyRotation(-90);
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // CROP
-  // ─────────────────────────────────────────────────────────────────────────
 
   void _enterCropMode() {
     _zoomController.value = Matrix4.identity();
@@ -514,10 +488,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _rebuildDisplayHighResSync();
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // ZOOM (Dynamisches Rand-Verhalten)
-  // ─────────────────────────────────────────────────────────────────────────
-
   void _resetZoom() {
     _zoomController.value = Matrix4.identity();
     _currentZoomScale = 1.0;
@@ -530,21 +500,12 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     setState(() {});
   }
 
-  /// Berechnet den dynamischen Randabstand:
-  /// - Im Crop-Mode oder bei Standard-Zoom (<= 1.0): voller Rand (_previewMargin)
-  /// - Beim Reinzoomen (> 1.0): Rand blendet sanft auf 0.0 aus, sodass das
-  ///   Bild den gesamten Bildschirm ausfüllt. Beim Rauszoomen kommt er wieder.
   double _getEffectiveMargin() {
     if (_isCropMode) return _previewMargin;
     if (_currentZoomScale <= 1.0) return _previewMargin;
-    // Sanfter Übergang zwischen Zoom 1.0 und 1.35 auf 0 Rand
     final t = ((_currentZoomScale - 1.0) / 0.35).clamp(0.0, 1.0);
     return _previewMargin * (1.0 - t);
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // RESET
-  // ─────────────────────────────────────────────────────────────────────────
 
   void _resetSlidersOnly() {
     _debounceTimer?.cancel();
@@ -568,7 +529,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _pendingUpdate = false;
     _renderGeneration++;
 
-    // Falls vorhanden, immer frisch aus der dauerhaften Original-Datei laden
     try {
       final prefs = await SharedPreferences.getInstance();
       final backupKey = '$_pristinePrefsPrefix${widget.originalPath.hashCode}';
@@ -612,10 +572,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // SPEICHERN
-  // ─────────────────────────────────────────────────────────────────────────
-
   Future<void> _saveAndExit() async {
     if (_baseDisplayImage == null || _isSaving) return;
     _debounceTimer?.cancel();
@@ -627,7 +583,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     }
     setState(() => _isSaving = true);
     try {
-      // Sicherstellen, dass das allererste Original-Backup existiert, bevor überschrieben wird
       final origFile = File(widget.originalPath);
       if (await origFile.exists()) {
         await _getOrCreatePristineBackupFile(origFile);
@@ -655,14 +610,11 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       if (mounted) {
         if (result.success) {
           await _saveSettingsForImage();
-          // ignore: use_build_context_synchronously
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('✅ Bild gespeichert!')),
           );
-          // ignore: use_build_context_synchronously
           Navigator.pop(context, widget.originalPath);
         } else {
-          // ignore: use_build_context_synchronously
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('❌ Fehler: ${result.error}')),
           );
@@ -672,17 +624,12 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('_saveAndExit FEHLER: $e');
       if (mounted) {
-        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Fehler: $e')));
         setState(() => _isSaving = false);
       }
     }
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // CROP-DRAG
-  // ─────────────────────────────────────────────────────────────────────────
 
   void _onPanStart(PointerDownEvent d) {
     if (!_isCropMode) return;
@@ -759,10 +706,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     return (24.0 / s).clamp(20.0, double.infinity);
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // ZURÜCK
-  // ─────────────────────────────────────────────────────────────────────────
-
   Future<bool> _onWillPop() async {
     if (!_hasChanges) return true;
     final r = await showDialog<bool>(
@@ -785,10 +728,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     return r ?? false;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // BUILD
-  // ─────────────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final settings = Provider.of<SettingsProvider>(context);
@@ -800,7 +739,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         if (!didPop) {
           final ok = await _onWillPop();
           if (ok && mounted) {
-            // ignore: use_build_context_synchronously
             Navigator.pop(context);
           }
         }
@@ -811,7 +749,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
           backgroundColor: _istDunkel ? Colors.black : Colors.white,
           body: Column(
             children: [
-              // ── Bildbereich ──────────────────────────────────────────
               Expanded(
                 child: Stack(
                   children: [
@@ -827,8 +764,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                 final imgW  = _displayWidth.toDouble();
                                 final imgH  = _displayHeight.toDouble();
 
-                                // Dynamischer Rand: immer aktiv im herausgezoomten Zustand,
-                                // verschwindet stufenlos beim Reinzoomen
                                 final pad = _getEffectiveMargin();
                                 final scale = math.min(
                                   (constraints.maxWidth  - pad * 2) / imgW,
@@ -844,7 +779,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                 _imageOffsetY = offY;
 
                                 return Stack(children: [
-                                  // ── Hintergrund ──
                                   Positioned.fill(
                                     child: ColoredBox(
                                       color: _istDunkel
@@ -852,8 +786,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                           : Colors.grey.shade200,
                                     ),
                                   ),
-
-                                  // ── Bild mit Zoom/Pan ──
                                   if (_isCropMode)
                                     Positioned(
                                       left: offX,
@@ -867,9 +799,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                       ),
                                     )
                                   else
-                                    // InteractiveViewer füllt den ganzen Bereich,
-                                    // damit man beim Reinzoomen über den Rand
-                                    // hinaus schwenken kann
                                     Positioned.fill(
                                       child: InteractiveViewer(
                                         panEnabled: true,
@@ -889,8 +818,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                         ),
                                       ),
                                     ),
-
-                                  // ── Crop-Overlay ──
                                   if (_isCropMode)
                                     Positioned.fill(
                                       child: Listener(
@@ -919,8 +846,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                 ]);
                               }),
                       ),
-
-                    // ── Schließen (links oben) ──────────────────────────
                     Positioned(
                       top: 0, left: 0,
                       child: SafeArea(
@@ -933,7 +858,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                             onTap: _isSaving ? null : () async {
                               final ok = await _onWillPop();
                               if (ok && mounted) {
-                                // ignore: use_build_context_synchronously
                                 Navigator.pop(context);
                               }
                             },
@@ -945,8 +869,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-
-                    // ── Speichern (rechts oben) ─────────────────────────
                     Positioned(
                       top: 0, right: 0,
                       child: SafeArea(
@@ -974,8 +896,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-
-                    // ── Crop-Toggle (unten mitte, über dem Sheet) ───────
                     Positioned(
                       bottom: 12, left: 0, right: 0,
                       child: Center(
@@ -1032,8 +952,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-
-              // ── Sheet ────────────────────────────────────────────────
               if (!_isLoading)
                 _buildSheet(settings),
             ],
@@ -1042,10 +960,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       ),
     );
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // SHEET
-  // ─────────────────────────────────────────────────────────────────────────
 
   static const double _sheetCollapsedH = 24.0;
   double _sheetExpandedH = 190.0;
@@ -1117,7 +1031,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ── Anfasser ──────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Center(
@@ -1132,8 +1045,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                 ),
               ),
             ),
-
-            // ── Inhalt ────────────────────────────────────────────────
             if (_sheetVisible)
               Flexible(
                 child: SingleChildScrollView(
@@ -1155,7 +1066,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // ── FARBE & SCHÄRFE: 4 Slider geordnet in einer Zeile ──
                           _sectionHeader(_t('color')),
                           Row(
                             children: [
@@ -1182,8 +1092,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                             ],
                           ),
                           _divider(),
-
-                          // ── AKTIONEN: Drehen, Zoom, Reset in einer Zeile ─────
                           _sectionHeader(_t('actions')),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -1262,7 +1170,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     ),
   );
 
-  /// Kompakter Slider für die 4-Spalten-Zeile (Helligkeit, Kontrast, Sättigung, Schärfe)
   Widget _sliderCompact(
     String key,
     IconData icon,
@@ -1358,10 +1265,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// BILDBEARBEITUNG (FARBE + SCHÄRFE) – GEMEINSAM FÜR VORSCHAU & SPEICHERN
-// ════════════════════════════════════════════════════════════════════════════
-
 img.Image _applyImageAdjustments(
   img.Image source, {
   required double brightness,
@@ -1376,11 +1279,9 @@ img.Image _applyImageAdjustments(
     saturation: saturation,
   );
 
-  // Schärfe anwenden (1.0 = unverändert)
   if ((sharpness - 1.0).abs() > 0.02) {
     if (sharpness > 1.0) {
-      // Schärfen via 3x3 Unsharp-Mask / Laplacian Kernel
-      final amount = (sharpness - 1.0) * 0.8; // Sanfte, saubere Skalierung
+      final amount = (sharpness - 1.0) * 0.8;
       final center = 1.0 + 4.0 * amount;
       final edge   = -amount;
       result = img.convolution(
@@ -1392,8 +1293,7 @@ img.Image _applyImageAdjustments(
         ],
       );
     } else {
-      // Weichzeichnen bei Werten < 1.0
-      final blurAmount = (1.0 - sharpness); // 0.0 bis 1.0
+      final blurAmount = (1.0 - sharpness);
       final edge = blurAmount * 0.125;
       final center = 1.0 - 4.0 * edge;
       result = img.convolution(
@@ -1409,10 +1309,6 @@ img.Image _applyImageAdjustments(
 
   return result;
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// MeasureSize – misst einmalig die Größe eines Widgets
-// ════════════════════════════════════════════════════════════════════════════
 
 typedef OnWidgetSizeChange = void Function(Size size);
 
@@ -1442,10 +1338,6 @@ class _MeasureSizeState extends State<MeasureSize> {
     return widget.child;
   }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// ISOLATE (VORSCHAU & SPEICHERN)
-// ════════════════════════════════════════════════════════════════════════════
 
 class _PreviewParams {
   final Uint8List baseImageBytes;
@@ -1524,10 +1416,6 @@ _SaveResult _saveInBackground(_SaveParams p) {
     return _SaveResult(success: false, error: e.toString());
   }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// CROP-PAINTER
-// ════════════════════════════════════════════════════════════════════════════
 
 enum _DragType {
   topLeft, topRight, bottomLeft, bottomRight,
@@ -1617,10 +1505,6 @@ class _CropPainter extends CustomPainter {
   bool shouldRepaint(_CropPainter o) =>
       o.cropRect != cropRect || o.fullSize != fullSize;
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// BildVollbildScreen
-// ════════════════════════════════════════════════════════════════════════════
 
 class BildVollbildResult {
   const BildVollbildResult();
