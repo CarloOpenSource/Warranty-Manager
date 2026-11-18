@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
-import 'package:path_provider/path_provider.dart'; // Wichtig für dauerhaften lokalen Speicher
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../Services/settings_provider.dart';
@@ -80,8 +80,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   bool _isLoading     = true;
   bool _isSaving      = false;
   bool _hasChanges    = false;
-  // ignore: unused_field
-  bool _isHighResMode = true;
+  bool _isHighResMode = false;
 
   // ── Display-Puffer ────────────────────────────────────────────────────────
   Uint8List? _displayBytes;
@@ -110,15 +109,16 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   Timer? _highResTimer;
   bool   _pendingUpdate = false;
   int    _renderGeneration = 0;
+  Future<void>? _pendingLowResJob;
 
   // ── Konstanten ────────────────────────────────────────────────────────────
   static const String   _prefsPrefix         = 'edit_settings_';
   static const String   _pristinePrefsPrefix = 'edit_pristine_backup_';
   static const int      _maxDisplayDimension = 1024;
-  static const int      _lowResMaxDimension  = 360;
+  static const int      _lowResMaxDimension  = 320;
   static const double   _handleSize          = 28.0;
-  static const Duration _debounceDelay       = Duration(milliseconds: 60);
-  static const Duration _highResDelay        = Duration(seconds: 5);
+  static const Duration _debounceDelay       = Duration(milliseconds: 50);
+  static const Duration _highResDelay        = Duration(seconds: 3); // Wechsel auf High-Res nach 3 Sekunden Inaktivität
   static const double   _previewMargin       = 40.0;
 
   @override
@@ -182,7 +182,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         }
       }
 
-      // Nutzen des dauerhaften Anwendungs-Dokumentenverzeichnisses statt des Caches
       final appDir = await getApplicationDocumentsDirectory();
       final backupDir = Directory('${appDir.path}/edit_pristine_originals');
       if (!await backupDir.exists()) {
@@ -193,7 +192,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         '${backupDir.path}/pristine_${widget.originalPath.hashCode.abs()}.jpg',
       );
 
-      // Falls noch kein Backup existiert, das aktuelle (oder originale) Bild dorthin kopieren
       if (!await backupFile.exists() || await backupFile.length() == 0) {
         await currentFile.copy(backupFile.path);
       }
@@ -241,36 +239,32 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   Future<void> _loadImage() async {
     setState(() => _isLoading = true);
     try {
-      final file = File(widget.imageDataPath);
+      final file = File(widget.originalPath);
       if (!await file.exists()) {
-        throw FileSystemException('Datei nicht gefunden', widget.imageDataPath);
+        throw FileSystemException('Datei nicht gefunden', widget.originalPath);
       }
 
       // 1. Permanentes Backup im Dokumentenverzeichnis sicherstellen
       final pristineFile = await _getOrCreatePristineBackupFile(file);
 
-      // 2. Aktuelles Arbeitsbild laden
-      final bytes   = await file.readAsBytes();
-      final decoded = img.decodeImage(bytes);
-      if (decoded == null) throw Exception('Bild nicht dekodierbar');
-      final img.Image work = _resizeToWorkDimensions(decoded);
-
-      // 3. Allererstes Originalbild für den Reset laden
+      // 2. Originalbild laden
       img.Image pristineWork;
       if (await pristineFile.exists()) {
         final pristineBytes = await pristineFile.readAsBytes();
         final pristineDecoded = img.decodeImage(pristineBytes);
         pristineWork = pristineDecoded != null
             ? _resizeToWorkDimensions(pristineDecoded)
-            : img.Image.from(work);
+            : _resizeToWorkDimensions(img.decodeImage(await file.readAsBytes())!);
       } else {
-        pristineWork = img.Image.from(work);
+        final bytes = await file.readAsBytes();
+        pristineWork = _resizeToWorkDimensions(img.decodeImage(bytes)!);
       }
 
       _originalBackup   = pristineWork;
-      _baseDisplayImage = work;
+      _baseDisplayImage = img.Image.from(pristineWork);
       _updateLowResBase();
 
+      // 3. Gespeicherte Regler-Werte laden (damit die Slider korrekt positioniert sind)
       await _loadSettingsForImage();
 
       _cropRect = Rect.fromLTWH(
@@ -278,6 +272,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         _baseDisplayImage!.width.toDouble(),
         _baseDisplayImage!.height.toDouble(),
       );
+
+      // Zuerst schnelle Low-Res-Vorschau anzeigen, dann High-Res anfordern
+      _rebuildDisplayLowRes();
       _rebuildDisplayHighResSync();
     } catch (e, stack) {
       debugPrint('_loadImage FEHLER: $e\n$stack');
@@ -293,7 +290,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   Future<void> _loadSettingsForImage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key   = '$_prefsPrefix${widget.imageDataPath.hashCode}';
+      final key   = '$_prefsPrefix${widget.originalPath.hashCode}';
       final str   = prefs.getString(key);
       if (str == null) return;
       final data = jsonDecode(str) as Map<String, dynamic>;
@@ -310,12 +307,13 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   Future<void> _saveSettingsForImage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key   = '$_prefsPrefix${widget.imageDataPath.hashCode}';
+      final key   = '$_prefsPrefix${widget.originalPath.hashCode}';
+      // Speichert die exakten Regler-Werte, damit sie beim nächsten Öffnen wieder da sind
       await prefs.setString(key, jsonEncode({
-        'brightness': 1.0,
-        'contrast':   1.0,
-        'saturation': 1.0,
-        'sharpness':  1.0,
+        'brightness': _brightness,
+        'contrast':   _contrast,
+        'saturation': _saturation,
+        'sharpness':  _sharpness,
         'timestamp':  DateTime.now().toIso8601String(),
       }));
     } catch (e) {
@@ -339,6 +337,39 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _displayWidth  = _baseDisplayImage!.width;
     _displayHeight = _baseDisplayImage!.height;
     _isHighResMode = false;
+  }
+
+  Future<void> _rebuildDisplayLowResAsync(int gen) async {
+    final src = _lowResBaseImage ?? _baseDisplayImage;
+    if (src == null) return;
+
+    final baseBytes = Uint8List.fromList(img.encodeJpg(src, quality: 85));
+    final params = _PreviewParams(
+      baseImageBytes: baseBytes,
+      brightness:     _brightness,
+      contrast:       _contrast,
+      saturation:     _saturation,
+      sharpness:      _sharpness,
+    );
+
+    try {
+      final resultBytes = await Isolate.run(
+        () => _renderPreviewInBackground(params),
+      );
+      if (mounted && gen == _renderGeneration && resultBytes != null) {
+        setState(() {
+          _displayBytes  = resultBytes;
+          _displayWidth  = _baseDisplayImage!.width;
+          _displayHeight = _baseDisplayImage!.height;
+          _isHighResMode = false;
+        });
+      }
+    } catch (e) {
+      if (mounted && gen == _renderGeneration) {
+        _rebuildDisplayLowRes();
+        setState(() {});
+      }
+    }
   }
 
   void _rebuildDisplayHighResSync() {
@@ -398,21 +429,20 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _pendingUpdate = true;
     _debounceTimer?.cancel();
     _highResTimer?.cancel();
-    _renderGeneration++;
+    final gen = ++_renderGeneration;
+
+    // Sofort flüssige Low-Res-Vorschau rendern
+    _rebuildDisplayLowResAsync(gen);
 
     _debounceTimer = Timer(_debounceDelay, () {
-      if (_pendingUpdate && mounted) {
-        _pendingUpdate = false;
-        _rebuildDisplayLowRes();
-        _hasChanges = true;
-        setState(() {});
-      }
-    });
+      if (!mounted) return;
+      _pendingUpdate = false;
+      _hasChanges    = true;
 
-    _highResTimer = Timer(_highResDelay, () {
-      if (mounted) {
-        _rebuildDisplayHighResAsync();
-      }
+      // Nach 3 Sekunden Inaktivität auf High-Res wechseln
+      _highResTimer = Timer(_highResDelay, () {
+        if (mounted) _rebuildDisplayHighResAsync();
+      });
     });
   }
 
@@ -529,28 +559,11 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _pendingUpdate = false;
     _renderGeneration++;
 
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final backupKey = '$_pristinePrefsPrefix${widget.originalPath.hashCode}';
-      final savedBackupPath = prefs.getString(backupKey);
-      if (savedBackupPath != null && savedBackupPath.isNotEmpty) {
-        final backupFile = File(savedBackupPath);
-        if (await backupFile.exists() && await backupFile.length() > 0) {
-          final bytes = await backupFile.readAsBytes();
-          final decoded = img.decodeImage(bytes);
-          if (decoded != null) {
-            _originalBackup = _resizeToWorkDimensions(decoded);
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('_resetToOriginal Backup-Load: $e');
+    if (_originalBackup != null) {
+      _baseDisplayImage = img.Image.from(_originalBackup!);
+      _updateLowResBase();
     }
 
-    if (_originalBackup == null) return;
-
-    _baseDisplayImage = img.Image.from(_originalBackup!);
-    _updateLowResBase();
     _cropRect = Rect.fromLTWH(
       0, 0,
       _baseDisplayImage!.width.toDouble(),
@@ -583,11 +596,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     }
     setState(() => _isSaving = true);
     try {
-      final origFile = File(widget.originalPath);
-      if (await origFile.exists()) {
-        await _getOrCreatePristineBackupFile(origFile);
-      }
-
       final baseBytes = Uint8List.fromList(
         img.encodeJpg(_baseDisplayImage!, quality: 100),
       );
@@ -1002,7 +1010,11 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
   Widget _buildSheet(SettingsProvider settings) {
     final btnsActive = _sheetVisible && !_isSaving && !_isCropMode;
-    final bottomPad = MediaQuery.of(context).padding.bottom;
+    // Automatische und präzise Erkennung der System-Navigationsleiste
+    final mq = MediaQuery.of(context);
+    final bottomPad = mq.viewPadding.bottom > 0
+        ? mq.viewPadding.bottom
+        : mq.padding.bottom;
 
     return GestureDetector(
       onVerticalDragStart:  _onSheetDragStart,
@@ -1052,9 +1064,13 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                   child: MeasureSize(
                     onChange: (size) {
                       if (!_sheetMeasured) {
-                        final fullH = size.height + 20 + _sheetCollapsedH;
+                        final mq2 = MediaQuery.of(context);
+                        final bp  = mq2.viewPadding.bottom > 0
+                            ? mq2.viewPadding.bottom
+                            : mq2.padding.bottom;
+                        final fullH = size.height + 20 + _sheetCollapsedH + bp;
                         setState(() {
-                          _sheetExpandedH  = fullH.clamp(120.0, 280.0);
+                          _sheetExpandedH  = fullH.clamp(120.0, 320.0);
                           _sheetCurrentH   = _sheetExpandedH;
                           _sheetMeasured   = true;
                         });
