@@ -439,4 +439,11 @@ const Map<String, String> translationsEn = {
   'fit_to_screen': 'Fit to screen',
   'reset_zoom': 'Reset Zoom',
   'crop_done': 'Done',
+
+  'undo': 'Undo',
+  'redo': 'Redo',
+  'reset_sliders': 'Reset sliders',
+  'image_saved': 'Image saved!',
+  'image_save_error': 'Save error',
+  'image_load_error': 'Load error',
 };

@@ -439,4 +439,9 @@ const Map<String, String> translationsFr = {
   'fit_to_screen': 'Ajuster à l\'écran',
   'reset_zoom': 'Réinitialiser le zoom',
   'crop_done': 'Terminé',
+
+  'undo': 'Annuler',
+  'redo': 'Rétablir',
+  'load_error': 'Erreur de chargement',
+  'save_error': "Erreur d'enregistrement",
 };

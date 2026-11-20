@@ -443,4 +443,11 @@ const Map<String, String> translationsDe = {
   'discard_changes_desc': 'Du hast ungespeicherte Änderungen. Möchtest du sie verwerfen?',
   'discard': 'Verwerfen',
   'crop_done': 'Fertig',
+  
+  'undo': 'Rückgängig',
+  'redo': 'Wiederholen',
+  'reset_sliders': 'Regler zurücksetzen',
+  'image_saved': 'Bild gespeichert!',
+  'image_save_error': 'Fehler beim Speichern',
+  'image_load_error': 'Fehler beim Laden',
 };

@@ -30,7 +30,7 @@ class EditScreen extends StatefulWidget {
       const String prefix = 'edit_settings_';
       const String pristinePrefix = 'edit_pristine_backup_';
       final settings = <String, dynamic>{};
-      
+
       for (final key in prefs.getKeys()) {
         if (key.startsWith(prefix) || key.startsWith(pristinePrefix)) {
           settings[key] = prefs.getString(key);
@@ -50,9 +50,10 @@ class EditScreen extends StatefulWidget {
       const String prefix = 'edit_settings_';
       const String pristinePrefix = 'edit_pristine_backup_';
       final Map<String, dynamic> data = jsonDecode(jsonStr);
-      
+
       for (final entry in data.entries) {
-        if (entry.key.startsWith(prefix) || entry.key.startsWith(pristinePrefix)) {
+        if (entry.key.startsWith(prefix) ||
+            entry.key.startsWith(pristinePrefix)) {
           await prefs.setString(entry.key, entry.value as String);
         }
       }
@@ -72,28 +73,39 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
   // ── Farb- & Schärfewerte ──────────────────────────────────────────────────
   double _brightness = 1.0;
-  double _contrast   = 1.0;
+  double _contrast = 1.0;
   double _saturation = 1.0;
-  double _sharpness  = 1.0;
+  double _sharpness = 1.0;
+
+  // Startwerte der aktuellen Session — Ziel für "Reset"
+  double _sessionInitialBrightness = 1.0;
+  double _sessionInitialContrast = 1.0;
+  double _sessionInitialSaturation = 1.0;
+  double _sessionInitialSharpness = 1.0;
 
   // ── Zustand ───────────────────────────────────────────────────────────────
-  bool _isLoading     = true;
-  bool _isSaving      = false;
-  bool _hasChanges    = false;
-  bool _isHighResMode = false;
+  bool _isLoading = true;
+  bool _isSaving = false;
+  bool _hasChanges = false;
 
   // ── Display-Puffer ────────────────────────────────────────────────────────
   Uint8List? _displayBytes;
-  int _displayWidth  = 0;
+  int _displayWidth = 0;
   int _displayHeight = 0;
 
   // ── Arbeitsbilder ─────────────────────────────────────────────────────────
-  img.Image? _baseDisplayImage; 
-  img.Image? _lowResBaseImage;  
-  img.Image? _originalBackup;   
+  img.Image? _baseDisplayImage;
+  img.Image? _lowResBaseImage;
+  img.Image? _originalBackup;
+  final List<_TransformOp> _transformHistory = [];
+
+  // ── Undo / Redo (nur diese Session) ───────────────────────────────────────
+  final List<_EditorSnapshot> _undoStack = [];
+  final List<_EditorSnapshot> _redoStack = [];
+  _EditorSnapshot? _sliderDragStartSnapshot;
 
   // ── Layout-Cache ──────────────────────────────────────────────────────────
-  double _renderScale  = 1.0;
+  double _renderScale = 1.0;
   double _imageOffsetX = 0.0;
   double _imageOffsetY = 0.0;
 
@@ -107,23 +119,26 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   // ── Debounce & Timer ──────────────────────────────────────────────────────
   Timer? _debounceTimer;
   Timer? _highResTimer;
-  bool   _pendingUpdate = false;
-  int    _renderGeneration = 0;
-  Future<void>? _pendingLowResJob;
+  int _renderGeneration = 0;
+  bool _isSliderDragging = false;
 
   // ── Konstanten ────────────────────────────────────────────────────────────
-  static const String   _prefsPrefix         = 'edit_settings_';
-  static const String   _pristinePrefsPrefix = 'edit_pristine_backup_';
-  static const int      _maxDisplayDimension = 1024;
-  static const int      _lowResMaxDimension  = 320;
-  static const double   _handleSize          = 28.0;
-  static const Duration _debounceDelay       = Duration(milliseconds: 50);
-  static const Duration _highResDelay        = Duration(seconds: 3); // Wechsel auf High-Res nach 3 Sekunden Inaktivität
-  static const double   _previewMargin       = 40.0;
+  static const String _prefsPrefix = 'edit_settings_';
+  static const String _pristinePrefsPrefix = 'edit_pristine_backup_';
+  static const int _maxDisplayDimension = 1024;
+  static const int _lowResMaxDimension = 320;
+  static const double _handleSize = 28.0;
+  static const Duration _debounceDelay = Duration(milliseconds: 50);
+  static const Duration _highResDelay = Duration(seconds: 3);
+  static const double _previewMargin = 40.0;
 
   @override
   void initState() {
     super.initState();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
     _zoomController = TransformationController();
     _zoomController.addListener(_onZoomChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -144,6 +159,12 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _zoomController.removeListener(_onZoomChanged);
     _zoomController.dispose();
     WidgetsBinding.instance.removeObserver(this);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     super.dispose();
   }
 
@@ -166,7 +187,104 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // LOKALES & PERMANENTES ORIGINAL-BACKUP (Cache-sicher & exportierbar)
+  // UNDO / REDO
+  // ─────────────────────────────────────────────────────────────────────────
+
+  bool get _canUndo => _undoStack.isNotEmpty && !_isSaving;
+  bool get _canRedo => _redoStack.isNotEmpty && !_isSaving;
+
+  _EditorSnapshot _currentSnapshot() {
+    return _EditorSnapshot(
+      transforms: List.unmodifiable(_transformHistory),
+      brightness: _brightness,
+      contrast: _contrast,
+      saturation: _saturation,
+      sharpness: _sharpness,
+      sessionInitialBrightness: _sessionInitialBrightness,
+      sessionInitialContrast: _sessionInitialContrast,
+      sessionInitialSaturation: _sessionInitialSaturation,
+      sessionInitialSharpness: _sessionInitialSharpness,
+    );
+  }
+
+  void _pushUndoState(_EditorSnapshot snap) {
+    _undoStack.add(snap);
+    _redoStack.clear();
+  }
+
+  void _undo() {
+    if (_undoStack.isEmpty) return;
+    final current = _currentSnapshot();
+    final target = _undoStack.removeLast();
+    _redoStack.add(current);
+    _applySnapshot(target);
+  }
+
+  void _redo() {
+    if (_redoStack.isEmpty) return;
+    final current = _currentSnapshot();
+    final target = _redoStack.removeLast();
+    _undoStack.add(current);
+    _applySnapshot(target);
+  }
+
+  void _applySnapshot(_EditorSnapshot snap) {
+    if (_originalBackup == null) return;
+    _debounceTimer?.cancel();
+    _highResTimer?.cancel();
+    _renderGeneration++;
+
+    // Basis aus Original + Transformationen rekonstruieren
+    img.Image base = img.Image.from(_originalBackup!);
+    for (final op in snap.transforms) {
+      if (op.rotation != null) {
+        base = img.copyRotate(base, angle: op.rotation!);
+      } else if (op.crop != null) {
+        final r = op.crop!;
+        base = img.copyCrop(
+          base,
+          x: r.left.round(),
+          y: r.top.round(),
+          width: r.width.round(),
+          height: r.height.round(),
+        );
+      }
+    }
+    _baseDisplayImage = base;
+    _transformHistory
+      ..clear()
+      ..addAll(snap.transforms);
+    _updateLowResBase();
+    _cropRect = Rect.fromLTWH(
+      0,
+      0,
+      base.width.toDouble(),
+      base.height.toDouble(),
+    );
+
+    _brightness = snap.brightness;
+    _contrast = snap.contrast;
+    _saturation = snap.saturation;
+    _sharpness = snap.sharpness;
+    _sessionInitialBrightness = snap.sessionInitialBrightness;
+    _sessionInitialContrast = snap.sessionInitialContrast;
+    _sessionInitialSaturation = snap.sessionInitialSaturation;
+    _sessionInitialSharpness = snap.sessionInitialSharpness;
+
+    _rebuildDisplayHighResSync();
+    if (mounted) setState(() => _hasChanges = true);
+  }
+
+  bool _snapshotsEqual(_EditorSnapshot a, _EditorSnapshot b) {
+    return a.brightness == b.brightness &&
+        a.contrast == b.contrast &&
+        a.saturation == b.saturation &&
+        a.sharpness == b.sharpness &&
+        a.transforms.length == b.transforms.length;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOKALES & PERMANENTES ORIGINAL-BACKUP
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<File> _getOrCreatePristineBackupFile(File currentFile) async {
@@ -177,7 +295,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
       if (savedBackupPath != null && savedBackupPath.isNotEmpty) {
         final existingBackup = File(savedBackupPath);
-        if (await existingBackup.exists() && await existingBackup.length() > 0) {
+        if (await existingBackup.exists() &&
+            await existingBackup.length() > 0) {
           return existingBackup;
         }
       }
@@ -213,7 +332,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       );
       return img.copyResize(
         decoded,
-        width:  (decoded.width  * s).round(),
+        width: (decoded.width * s).round(),
         height: (decoded.height * s).round(),
       );
     }
@@ -244,43 +363,49 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         throw FileSystemException('Datei nicht gefunden', widget.originalPath);
       }
 
-      // 1. Permanentes Backup im Dokumentenverzeichnis sicherstellen
       final pristineFile = await _getOrCreatePristineBackupFile(file);
 
-      // 2. Originalbild laden
       img.Image pristineWork;
       if (await pristineFile.exists()) {
         final pristineBytes = await pristineFile.readAsBytes();
         final pristineDecoded = img.decodeImage(pristineBytes);
         pristineWork = pristineDecoded != null
             ? _resizeToWorkDimensions(pristineDecoded)
-            : _resizeToWorkDimensions(img.decodeImage(await file.readAsBytes())!);
+            : _resizeToWorkDimensions(
+                img.decodeImage(await file.readAsBytes())!,
+              );
       } else {
         final bytes = await file.readAsBytes();
         pristineWork = _resizeToWorkDimensions(img.decodeImage(bytes)!);
       }
 
-      _originalBackup   = pristineWork;
+      _originalBackup = pristineWork;
       _baseDisplayImage = img.Image.from(pristineWork);
       _updateLowResBase();
 
-      // 3. Gespeicherte Regler-Werte laden (damit die Slider korrekt positioniert sind)
       await _loadSettingsForImage();
 
+      // Session-Startwerte merken
+      _sessionInitialBrightness = _brightness;
+      _sessionInitialContrast = _contrast;
+      _sessionInitialSaturation = _saturation;
+      _sessionInitialSharpness = _sharpness;
+
       _cropRect = Rect.fromLTWH(
-        0, 0,
+        0,
+        0,
         _baseDisplayImage!.width.toDouble(),
         _baseDisplayImage!.height.toDouble(),
       );
 
-      // Zuerst schnelle Low-Res-Vorschau anzeigen, dann High-Res anfordern
       _rebuildDisplayLowRes();
       _rebuildDisplayHighResSync();
     } catch (e, stack) {
       debugPrint('_loadImage FEHLER: $e\n$stack');
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Fehler beim Laden: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${_t('load_error')}: $e')),
+        );
         Navigator.pop(context);
       }
     }
@@ -290,14 +415,49 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   Future<void> _loadSettingsForImage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key   = '$_prefsPrefix${widget.originalPath.hashCode}';
-      final str   = prefs.getString(key);
+      final key = '$_prefsPrefix${widget.originalPath.hashCode}';
+      final str = prefs.getString(key);
       if (str == null) return;
       final data = jsonDecode(str) as Map<String, dynamic>;
       _brightness = (data['brightness'] as num?)?.toDouble() ?? 1.0;
-      _contrast   = (data['contrast']   as num?)?.toDouble() ?? 1.0;
+      _contrast = (data['contrast'] as num?)?.toDouble() ?? 1.0;
       _saturation = (data['saturation'] as num?)?.toDouble() ?? 1.0;
-      _sharpness  = (data['sharpness']  as num?)?.toDouble() ?? 1.0;
+      _sharpness = (data['sharpness'] as num?)?.toDouble() ?? 1.0;
+
+      final transforms = data['transforms'];
+      if (transforms is List && _baseDisplayImage != null) {
+        for (final t in transforms) {
+          if (t is! Map) continue;
+          final type = t['type'];
+          if (type == 'rotate' && t['angle'] is num) {
+            final angle = (t['angle'] as num).toInt();
+            _baseDisplayImage = img.copyRotate(_baseDisplayImage!, angle: angle);
+            _transformHistory.add(_TransformOp.rotation(angle));
+          } else if (type == 'crop') {
+            final x = (t['x'] as num).toInt();
+            final y = (t['y'] as num).toInt();
+            final w = (t['w'] as num).toInt();
+            final h = (t['h'] as num).toInt();
+            _baseDisplayImage = img.copyCrop(
+              _baseDisplayImage!,
+              x: x,
+              y: y,
+              width: w,
+              height: h,
+            );
+            _transformHistory.add(_TransformOp.cropping(
+              Rect.fromLTWH(
+                x.toDouble(),
+                y.toDouble(),
+                w.toDouble(),
+                h.toDouble(),
+              ),
+            ));
+          }
+        }
+        _updateLowResBase();
+      }
+
       _hasChanges = false;
     } catch (e) {
       debugPrint('_loadSettingsForImage FEHLER: $e');
@@ -307,15 +467,32 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   Future<void> _saveSettingsForImage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key   = '$_prefsPrefix${widget.originalPath.hashCode}';
-      // Speichert die exakten Regler-Werte, damit sie beim nächsten Öffnen wieder da sind
-      await prefs.setString(key, jsonEncode({
-        'brightness': _brightness,
-        'contrast':   _contrast,
-        'saturation': _saturation,
-        'sharpness':  _sharpness,
-        'timestamp':  DateTime.now().toIso8601String(),
-      }));
+      final key = '$_prefsPrefix${widget.originalPath.hashCode}';
+      await prefs.setString(
+        key,
+        jsonEncode({
+          'brightness': _brightness,
+          'contrast': _contrast,
+          'saturation': _saturation,
+          'sharpness': _sharpness,
+          'timestamp': DateTime.now().toIso8601String(),
+          'transforms': _transformHistory.map((op) {
+            if (op.rotation != null) {
+              return <String, dynamic>{
+                'type': 'rotate',
+                'angle': op.rotation,
+              };
+            }
+            return <String, dynamic>{
+              'type': 'crop',
+              'x': op.crop!.left.round(),
+              'y': op.crop!.top.round(),
+              'w': op.crop!.width.round(),
+              'h': op.crop!.height.round(),
+            };
+          }).toList(),
+        }),
+      );
     } catch (e) {
       debugPrint('_saveSettingsForImage FEHLER: $e');
     }
@@ -328,15 +505,14 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     final out = _applyImageAdjustments(
       img.Image.from(src),
       brightness: _brightness,
-      contrast:   _contrast,
+      contrast: _contrast,
       saturation: _saturation,
-      sharpness:  _sharpness,
+      sharpness: _sharpness,
     );
 
-    _displayBytes  = Uint8List.fromList(img.encodeJpg(out, quality: 80));
-    _displayWidth  = _baseDisplayImage!.width;
+    _displayBytes = Uint8List.fromList(img.encodeJpg(out, quality: 80));
+    _displayWidth = _baseDisplayImage!.width;
     _displayHeight = _baseDisplayImage!.height;
-    _isHighResMode = false;
   }
 
   Future<void> _rebuildDisplayLowResAsync(int gen) async {
@@ -346,10 +522,10 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     final baseBytes = Uint8List.fromList(img.encodeJpg(src, quality: 85));
     final params = _PreviewParams(
       baseImageBytes: baseBytes,
-      brightness:     _brightness,
-      contrast:       _contrast,
-      saturation:     _saturation,
-      sharpness:      _sharpness,
+      brightness: _brightness,
+      contrast: _contrast,
+      saturation: _saturation,
+      sharpness: _sharpness,
     );
 
     try {
@@ -358,10 +534,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       );
       if (mounted && gen == _renderGeneration && resultBytes != null) {
         setState(() {
-          _displayBytes  = resultBytes;
-          _displayWidth  = _baseDisplayImage!.width;
+          _displayBytes = resultBytes;
+          _displayWidth = _baseDisplayImage!.width;
           _displayHeight = _baseDisplayImage!.height;
-          _isHighResMode = false;
         });
       }
     } catch (e) {
@@ -380,14 +555,13 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     final out = _applyImageAdjustments(
       img.Image.from(_baseDisplayImage!),
       brightness: _brightness,
-      contrast:   _contrast,
+      contrast: _contrast,
       saturation: _saturation,
-      sharpness:  _sharpness,
+      sharpness: _sharpness,
     );
-    _displayBytes  = Uint8List.fromList(img.encodeJpg(out, quality: 92));
-    _displayWidth  = out.width;
+    _displayBytes = Uint8List.fromList(img.encodeJpg(out, quality: 92));
+    _displayWidth = out.width;
     _displayHeight = out.height;
-    _isHighResMode = true;
   }
 
   Future<void> _rebuildDisplayHighResAsync() async {
@@ -400,20 +574,20 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       );
       final params = _PreviewParams(
         baseImageBytes: baseBytes,
-        brightness:     _brightness,
-        contrast:       _contrast,
-        saturation:     _saturation,
-        sharpness:      _sharpness,
+        brightness: _brightness,
+        contrast: _contrast,
+        saturation: _saturation,
+        sharpness: _sharpness,
       );
 
-      final resultBytes = await Isolate.run(() => _renderPreviewInBackground(params));
+      final resultBytes =
+          await Isolate.run(() => _renderPreviewInBackground(params));
 
       if (mounted && gen == _renderGeneration && resultBytes != null) {
         setState(() {
-          _displayBytes  = resultBytes;
-          _displayWidth  = _baseDisplayImage!.width;
+          _displayBytes = resultBytes;
+          _displayWidth = _baseDisplayImage!.width;
           _displayHeight = _baseDisplayImage!.height;
-          _isHighResMode = true;
         });
       }
     } catch (e) {
@@ -426,41 +600,86 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 
   void _scheduleDisplayUpdate() {
-    _pendingUpdate = true;
     _debounceTimer?.cancel();
     _highResTimer?.cancel();
-    final gen = ++_renderGeneration;
+    _renderGeneration++;
 
-    // Sofort flüssige Low-Res-Vorschau rendern
-    _rebuildDisplayLowResAsync(gen);
+    if (_isSliderDragging) {
+      _rebuildDisplayLowRes();
+      if (mounted) setState(() {});
+    } else {
+      final gen = _renderGeneration;
+      _rebuildDisplayLowResAsync(gen);
+    }
 
     _debounceTimer = Timer(_debounceDelay, () {
       if (!mounted) return;
-      _pendingUpdate = false;
-      _hasChanges    = true;
+      _hasChanges = true;
 
-      // Nach 3 Sekunden Inaktivität auf High-Res wechseln
-      _highResTimer = Timer(_highResDelay, () {
-        if (mounted) _rebuildDisplayHighResAsync();
-      });
+      if (!_isSliderDragging) {
+        _highResTimer = Timer(_highResDelay, () {
+          if (mounted) _rebuildDisplayHighResAsync();
+        });
+      }
     });
   }
 
-  void _onBrightnessChanged(double v) { _brightness = v; _scheduleDisplayUpdate(); }
-  void _onContrastChanged(double v)   { _contrast   = v; _scheduleDisplayUpdate(); }
-  void _onSaturationChanged(double v) { _saturation = v; _scheduleDisplayUpdate(); }
-  void _onSharpnessChanged(double v)  { _sharpness  = v; _scheduleDisplayUpdate(); }
+  void _onSliderDragStart() {
+    _isSliderDragging = true;
+    _sliderDragStartSnapshot = _currentSnapshot();
+    _debounceTimer?.cancel();
+    _highResTimer?.cancel();
+  }
+
+  void _onSliderDragEnd() {
+    _isSliderDragging = false;
+    _hasChanges = true;
+    // Undo-Punkt nur setzen, wenn sich wirklich etwas verändert hat
+    if (_sliderDragStartSnapshot != null) {
+      final now = _currentSnapshot();
+      if (!_snapshotsEqual(_sliderDragStartSnapshot!, now)) {
+        _pushUndoState(_sliderDragStartSnapshot!);
+      }
+      _sliderDragStartSnapshot = null;
+    }
+    _highResTimer = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _rebuildDisplayHighResAsync();
+    });
+  }
+
+  void _onBrightnessChanged(double v) {
+    _brightness = v;
+    _scheduleDisplayUpdate();
+  }
+
+  void _onContrastChanged(double v) {
+    _contrast = v;
+    _scheduleDisplayUpdate();
+  }
+
+  void _onSaturationChanged(double v) {
+    _saturation = v;
+    _scheduleDisplayUpdate();
+  }
+
+  void _onSharpnessChanged(double v) {
+    _sharpness = v;
+    _scheduleDisplayUpdate();
+  }
 
   void _applyRotation(int angleDeg) {
     if (_baseDisplayImage == null || _isSaving) return;
     _debounceTimer?.cancel();
     _highResTimer?.cancel();
-    _pendingUpdate = false;
+
+    _pushUndoState(_currentSnapshot());
 
     _baseDisplayImage = img.copyRotate(_baseDisplayImage!, angle: angleDeg);
+    _transformHistory.add(_TransformOp.rotation(angleDeg));
     _updateLowResBase();
     _cropRect = Rect.fromLTWH(
-      0, 0,
+      0,
+      0,
       _baseDisplayImage!.width.toDouble(),
       _baseDisplayImage!.height.toDouble(),
     );
@@ -469,19 +688,25 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
-  void _rotateLeft()  => _applyRotation(90);
+  void _rotateLeft() => _applyRotation(90);
   void _rotateRight() => _applyRotation(-90);
 
   void _enterCropMode() {
     _zoomController.value = Matrix4.identity();
     _currentZoomScale = 1.0;
+    _cropRect = Rect.fromLTWH(
+      0,
+      0,
+      _baseDisplayImage!.width.toDouble(),
+      _baseDisplayImage!.height.toDouble(),
+    );
     setState(() => _isCropMode = true);
   }
 
   void _exitCropMode() {
     _applyCropToBaseImage();
     setState(() {
-      _isCropMode   = false;
+      _isCropMode = false;
       _activeHandle = null;
     });
   }
@@ -498,20 +723,33 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     if (_baseDisplayImage == null) return;
     final bw = _baseDisplayImage!.width;
     final bh = _baseDisplayImage!.height;
-    final x  = _cropRect.left.floor().clamp(0, bw - 1);
-    final y  = _cropRect.top.floor().clamp(0, bh - 1);
-    final w  = _cropRect.width.floor().clamp(1, bw - x);
-    final h  = _cropRect.height.floor().clamp(1, bh - y);
+    final x = _cropRect.left.floor().clamp(0, bw - 1);
+    final y = _cropRect.top.floor().clamp(0, bh - 1);
+    final w = _cropRect.width.floor().clamp(1, bw - x);
+    final h = _cropRect.height.floor().clamp(1, bh - y);
     if (!(x == 0 && y == 0 && w == bw && h == bh)) {
+      _pushUndoState(_currentSnapshot());
       _baseDisplayImage = img.copyCrop(
         _baseDisplayImage!,
-        x: x, y: y, width: w, height: h,
+        x: x,
+        y: y,
+        width: w,
+        height: h,
       );
+      _transformHistory.add(_TransformOp.cropping(
+        Rect.fromLTWH(
+          x.toDouble(),
+          y.toDouble(),
+          w.toDouble(),
+          h.toDouble(),
+        ),
+      ));
       _updateLowResBase();
       _hasChanges = true;
     }
     _cropRect = Rect.fromLTWH(
-      0, 0,
+      0,
+      0,
       _baseDisplayImage!.width.toDouble(),
       _baseDisplayImage!.height.toDouble(),
     );
@@ -537,16 +775,20 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     return _previewMargin * (1.0 - t);
   }
 
-  void _resetSlidersOnly() {
+  void _resetSliders() {
+    final needsPush = _brightness != _sessionInitialBrightness ||
+        _contrast != _sessionInitialContrast ||
+        _saturation != _sessionInitialSaturation ||
+        _sharpness != _sessionInitialSharpness;
+    if (needsPush) _pushUndoState(_currentSnapshot());
     _debounceTimer?.cancel();
     _highResTimer?.cancel();
-    _pendingUpdate = false;
     _renderGeneration++;
     setState(() {
-      _brightness = 1.0;
-      _contrast   = 1.0;
-      _saturation = 1.0;
-      _sharpness  = 1.0;
+      _brightness = _sessionInitialBrightness;
+      _contrast = _sessionInitialContrast;
+      _saturation = _sessionInitialSaturation;
+      _sharpness = _sessionInitialSharpness;
       _hasChanges = true;
     });
     _rebuildDisplayHighResSync();
@@ -554,10 +796,11 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _resetToOriginal() async {
+    _pushUndoState(_currentSnapshot());
     _debounceTimer?.cancel();
     _highResTimer?.cancel();
-    _pendingUpdate = false;
     _renderGeneration++;
+    _transformHistory.clear();
 
     if (_originalBackup != null) {
       _baseDisplayImage = img.Image.from(_originalBackup!);
@@ -565,22 +808,27 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     }
 
     _cropRect = Rect.fromLTWH(
-      0, 0,
+      0,
+      0,
       _baseDisplayImage!.width.toDouble(),
       _baseDisplayImage!.height.toDouble(),
     );
     _brightness = 1.0;
-    _contrast   = 1.0;
+    _contrast = 1.0;
     _saturation = 1.0;
-    _sharpness  = 1.0;
+    _sharpness = 1.0;
+    _sessionInitialBrightness = 1.0;
+    _sessionInitialContrast = 1.0;
+    _sessionInitialSaturation = 1.0;
+    _sessionInitialSharpness = 1.0;
     _rebuildDisplayHighResSync();
     _resetZoom();
 
     if (mounted) {
       setState(() {
-        _isCropMode   = false;
+        _isCropMode = false;
         _activeHandle = null;
-        _hasChanges   = true;
+        _hasChanges = true;
       });
     }
   }
@@ -592,7 +840,10 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
     if (_isCropMode) {
       _applyCropToBaseImage();
-      setState(() { _isCropMode = false; _activeHandle = null; });
+      setState(() {
+        _isCropMode = false;
+        _activeHandle = null;
+      });
     }
     setState(() => _isSaving = true);
     try {
@@ -601,11 +852,11 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       );
       final params = _SaveParams(
         baseImageBytes: baseBytes,
-        brightness:     _brightness,
-        contrast:       _contrast,
-        saturation:     _saturation,
-        sharpness:      _sharpness,
-        originalPath:   widget.originalPath,
+        brightness: _brightness,
+        contrast: _contrast,
+        saturation: _saturation,
+        sharpness: _sharpness,
+        originalPath: widget.originalPath,
       );
       _SaveResult result;
       try {
@@ -618,13 +869,13 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       if (mounted) {
         if (result.success) {
           await _saveSettingsForImage();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✅ Bild gespeichert!')),
-          );
+          if (!mounted) return;
           Navigator.pop(context, widget.originalPath);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('❌ Fehler: ${result.error}')),
+            SnackBar(
+              content: Text('${_t('save_error')}: ${result.error}'),
+            ),
           );
           setState(() => _isSaving = false);
         }
@@ -632,8 +883,9 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('_saveAndExit FEHLER: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Fehler: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${_t('save_error')}: $e')),
+        );
         setState(() => _isSaving = false);
       }
     }
@@ -669,18 +921,21 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     final s = _renderScale;
     final r = _cropRect;
     final handles = <({_DragType type, Offset pos})>[
-      (type: _DragType.topLeft,     pos: Offset(r.left * s,      r.top * s)),
-      (type: _DragType.topRight,    pos: Offset(r.right * s,     r.top * s)),
-      (type: _DragType.bottomLeft,  pos: Offset(r.left * s,      r.bottom * s)),
-      (type: _DragType.bottomRight, pos: Offset(r.right * s,     r.bottom * s)),
-      (type: _DragType.top,         pos: Offset(r.center.dx * s, r.top * s)),
-      (type: _DragType.bottom,      pos: Offset(r.center.dx * s, r.bottom * s)),
-      (type: _DragType.left,        pos: Offset(r.left * s,      r.center.dy * s)),
-      (type: _DragType.right,       pos: Offset(r.right * s,     r.center.dy * s)),
+      (type: _DragType.topLeft, pos: Offset(r.left * s, r.top * s)),
+      (type: _DragType.topRight, pos: Offset(r.right * s, r.top * s)),
+      (type: _DragType.bottomLeft, pos: Offset(r.left * s, r.bottom * s)),
+      (type: _DragType.bottomRight, pos: Offset(r.right * s, r.bottom * s)),
+      (type: _DragType.top, pos: Offset(r.center.dx * s, r.top * s)),
+      (type: _DragType.bottom, pos: Offset(r.center.dx * s, r.bottom * s)),
+      (type: _DragType.left, pos: Offset(r.left * s, r.center.dy * s)),
+      (type: _DragType.right, pos: Offset(r.right * s, r.center.dy * s)),
     ];
     for (final h in handles) {
-      if (Rect.fromCenter(center: h.pos, width: _handleSize, height: _handleSize)
-              .contains(localInImage)) {
+      if (Rect.fromCenter(
+        center: h.pos,
+        width: _handleSize,
+        height: _handleSize,
+      ).contains(localInImage)) {
         return _DragHandle(h.type, h.pos);
       }
     }
@@ -690,22 +945,42 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   Rect _resizeRect(Rect r, _DragType t, Offset p) {
     double l = r.left, top = r.top, ri = r.right, b = r.bottom;
     switch (t) {
-      case _DragType.topLeft:     l = p.dx; top = p.dy; break;
-      case _DragType.topRight:    ri = p.dx; top = p.dy; break;
-      case _DragType.bottomLeft:  l = p.dx; b = p.dy;   break;
-      case _DragType.bottomRight: ri = p.dx; b = p.dy;  break;
-      case _DragType.top:    top = p.dy; break;
-      case _DragType.bottom: b   = p.dy; break;
-      case _DragType.left:   l   = p.dx; break;
-      case _DragType.right:  ri  = p.dx; break;
+      case _DragType.topLeft:
+        l = p.dx;
+        top = p.dy;
+        break;
+      case _DragType.topRight:
+        ri = p.dx;
+        top = p.dy;
+        break;
+      case _DragType.bottomLeft:
+        l = p.dx;
+        b = p.dy;
+        break;
+      case _DragType.bottomRight:
+        ri = p.dx;
+        b = p.dy;
+        break;
+      case _DragType.top:
+        top = p.dy;
+        break;
+      case _DragType.bottom:
+        b = p.dy;
+        break;
+      case _DragType.left:
+        l = p.dx;
+        break;
+      case _DragType.right:
+        ri = p.dx;
+        break;
     }
     final m = _cropMarginPx().clamp(20.0, double.infinity);
-    final maxL = _displayWidth.toDouble()  - m;
+    final maxL = _displayWidth.toDouble() - m;
     final maxT = _displayHeight.toDouble() - m;
-    l   = l.clamp(m, maxL);
-    ri  = ri.clamp(l + 20.0, _displayWidth.toDouble());
+    l = l.clamp(m, maxL);
+    ri = ri.clamp(l + 20.0, _displayWidth.toDouble());
     top = top.clamp(m, maxT);
-    b   = b.clamp(top + 20.0, _displayHeight.toDouble());
+    b = b.clamp(top + 20.0, _displayHeight.toDouble());
     return Rect.fromLTRB(l, top, ri, b);
   }
 
@@ -746,13 +1021,14 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       onPopInvokedWithResult: (didPop, _) async {
         if (!didPop) {
           final ok = await _onWillPop();
-          if (ok && mounted) {
+          if (ok && context.mounted) {
             Navigator.pop(context);
           }
         }
       },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
-        value: _istDunkel ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        value:
+            _istDunkel ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
         child: Scaffold(
           backgroundColor: _istDunkel ? Colors.black : Colors.white,
           body: Column(
@@ -769,20 +1045,22 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                 _displayHeight == 0)
                             ? const SizedBox.shrink()
                             : LayoutBuilder(builder: (ctx, constraints) {
-                                final imgW  = _displayWidth.toDouble();
-                                final imgH  = _displayHeight.toDouble();
+                                final imgW = _displayWidth.toDouble();
+                                final imgH = _displayHeight.toDouble();
 
                                 final pad = _getEffectiveMargin();
                                 final scale = math.min(
-                                  (constraints.maxWidth  - pad * 2) / imgW,
+                                  (constraints.maxWidth - pad * 2) / imgW,
                                   (constraints.maxHeight - pad * 2) / imgH,
                                 );
                                 final fitW = imgW * scale;
                                 final fitH = imgH * scale;
-                                final offX = (constraints.maxWidth  - fitW) / 2;
-                                final offY = (constraints.maxHeight - fitH) / 2;
+                                final offX =
+                                    (constraints.maxWidth - fitW) / 2;
+                                final offY =
+                                    (constraints.maxHeight - fitH) / 2;
 
-                                _renderScale  = scale;
+                                _renderScale = scale;
                                 _imageOffsetX = offX;
                                 _imageOffsetY = offY;
 
@@ -812,7 +1090,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                         panEnabled: true,
                                         minScale: 0.5,
                                         maxScale: 4.0,
-                                        transformationController: _zoomController,
+                                        transformationController:
+                                            _zoomController,
                                         child: Center(
                                           child: SizedBox(
                                             width: fitW,
@@ -829,16 +1108,16 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                   if (_isCropMode)
                                     Positioned.fill(
                                       child: Listener(
-                                        onPointerDown:  _onPanStart,
-                                        onPointerMove:  _onPanUpdate,
-                                        onPointerUp:    _onPanEnd,
+                                        onPointerDown: _onPanStart,
+                                        onPointerMove: _onPanUpdate,
+                                        onPointerUp: _onPanEnd,
                                         behavior: HitTestBehavior.translucent,
                                         child: CustomPaint(
                                           painter: _CropPainter(
                                             cropRect: Rect.fromLTWH(
-                                              offX + _cropRect.left   * scale,
-                                              offY + _cropRect.top    * scale,
-                                              _cropRect.width  * scale,
+                                              offX + _cropRect.left * scale,
+                                              offY + _cropRect.top * scale,
+                                              _cropRect.width * scale,
                                               _cropRect.height * scale,
                                             ),
                                             fullSize: Size(
@@ -854,8 +1133,10 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                 ]);
                               }),
                       ),
+                    // ── Schließen (oben links) ─────────────────────────────
                     Positioned(
-                      top: 0, left: 0,
+                      top: 0,
+                      left: 0,
                       child: SafeArea(
                         child: Padding(
                           padding: const EdgeInsets.all(8),
@@ -863,55 +1144,131 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                             color: _istDunkel
                                 ? Colors.grey.shade800.withValues(alpha: 0.85)
                                 : Colors.grey.shade100.withValues(alpha: 0.85),
-                            onTap: _isSaving ? null : () async {
-                              final ok = await _onWillPop();
-                              if (ok && mounted) {
-                                Navigator.pop(context);
-                              }
-                            },
+                            onTap: _isSaving
+                                ? null
+                                : () async {
+                                    final ok = await _onWillPop();
+                                    if (ok && context.mounted) {
+                                      Navigator.pop(context);
+                                    }
+                                  },
                             child: Icon(
-                              Icons.close, size: 26,
-                              color: _istDunkel ? Colors.white : Colors.black87,
+                              Icons.close,
+                              size: 26,
+                              color: _istDunkel
+                                  ? Colors.white
+                                  : Colors.black87,
                             ),
                           ),
                         ),
                       ),
                     ),
+                    // ── Undo / Redo / Speichern (oben rechts) ─────────────
                     Positioned(
-                      top: 0, right: 0,
+                      top: 0,
+                      right: 0,
                       child: SafeArea(
                         child: Padding(
                           padding: const EdgeInsets.all(8),
-                          child: _circleButton(
-                            color: _istDunkel
-                                ? Colors.green.shade700
-                                : Colors.green.shade600,
-                            onTap: _isSaving ? null : _saveAndExit,
-                            child: _isSaving
-                                ? const SizedBox(
-                                    width: 48, height: 48,
-                                    child: Center(
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 3,
-                                        valueColor: AlwaysStoppedAnimation(
-                                            Colors.white),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Undo
+                              _circleButton(
+                                color: _canUndo
+                                    ? (_istDunkel
+                                        ? Colors.grey.shade800
+                                            .withValues(alpha: 0.85)
+                                        : Colors.grey.shade100
+                                            .withValues(alpha: 0.85))
+                                    : (_istDunkel
+                                        ? Colors.grey.shade900
+                                            .withValues(alpha: 0.5)
+                                        : Colors.grey.shade300
+                                            .withValues(alpha: 0.5)),
+                                onTap: _canUndo ? _undo : null,
+                                child: Icon(
+                                  Icons.undo,
+                                  size: 24,
+                                  color: _canUndo
+                                      ? (_istDunkel
+                                          ? Colors.white
+                                          : Colors.black87)
+                                      : (_istDunkel
+                                          ? Colors.white24
+                                          : Colors.black26),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              // Redo
+                              _circleButton(
+                                color: _canRedo
+                                    ? (_istDunkel
+                                        ? Colors.grey.shade800
+                                            .withValues(alpha: 0.85)
+                                        : Colors.grey.shade100
+                                            .withValues(alpha: 0.85))
+                                    : (_istDunkel
+                                        ? Colors.grey.shade900
+                                            .withValues(alpha: 0.5)
+                                        : Colors.grey.shade300
+                                            .withValues(alpha: 0.5)),
+                                onTap: _canRedo ? _redo : null,
+                                child: Icon(
+                                  Icons.redo,
+                                  size: 24,
+                                  color: _canRedo
+                                      ? (_istDunkel
+                                          ? Colors.white
+                                          : Colors.black87)
+                                      : (_istDunkel
+                                          ? Colors.white24
+                                          : Colors.black26),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              // Speichern
+                              _circleButton(
+                                color: _istDunkel
+                                    ? Colors.green.shade700
+                                    : Colors.green.shade600,
+                                onTap: _isSaving ? null : _saveAndExit,
+                                child: _isSaving
+                                    ? const SizedBox(
+                                        width: 48,
+                                        height: 48,
+                                        child: Center(
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 3,
+                                            valueColor:
+                                                AlwaysStoppedAnimation(
+                                                    Colors.white),
+                                          ),
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.check,
+                                        size: 26,
+                                        color: Colors.white,
                                       ),
-                                    ),
-                                  )
-                                : const Icon(Icons.check,
-                                    size: 26, color: Colors.white),
+                              ),
+                            ],
                           ),
                         ),
                       ),
                     ),
+                    // ── Crop-Button (unten mittig) ─────────────────────────
                     Positioned(
-                      bottom: 12, left: 0, right: 0,
+                      bottom: 12,
+                      left: 0,
+                      right: 0,
                       child: Center(
                         child: Material(
                           color: _isCropMode
                               ? Colors.blueAccent
                               : (_istDunkel
-                                  ? Colors.grey.shade800.withValues(alpha: 0.9)
+                                  ? Colors.grey.shade800
+                                      .withValues(alpha: 0.9)
                                   : Colors.white.withValues(alpha: 0.9)),
                           elevation: 4,
                           borderRadius: BorderRadius.circular(24),
@@ -960,8 +1317,7 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-              if (!_isLoading)
-                _buildSheet(settings),
+              if (!_isLoading) _buildSheet(settings),
             ],
           ),
         ),
@@ -971,8 +1327,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
   static const double _sheetCollapsedH = 24.0;
   double _sheetExpandedH = 190.0;
-  double _sheetCurrentH  = 190.0;
-  bool   _sheetMeasured  = false;
+  double _sheetCurrentH = 190.0;
+  bool _sheetMeasured = false;
 
   double? _dragStartY;
   double? _dragStartH;
@@ -985,11 +1341,11 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   void _onSheetDragUpdate(DragUpdateDetails d) {
     if (_dragStartY == null || _dragStartH == null) return;
     final delta = _dragStartY! - d.globalPosition.dy;
-    final newH = (_dragStartH! + delta)
-        .clamp(_sheetCollapsedH, _sheetExpandedH);
+    final newH =
+        (_dragStartH! + delta).clamp(_sheetCollapsedH, _sheetExpandedH);
     setState(() {
       _sheetCurrentH = newH;
-      _sheetVisible  = newH > _sheetCollapsedH + 10;
+      _sheetVisible = newH > _sheetCollapsedH + 10;
     });
   }
 
@@ -998,10 +1354,10 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     setState(() {
       if (_sheetCurrentH < half) {
         _sheetCurrentH = _sheetCollapsedH;
-        _sheetVisible  = false;
+        _sheetVisible = false;
       } else {
         _sheetCurrentH = _sheetExpandedH;
-        _sheetVisible  = true;
+        _sheetVisible = true;
       }
     });
     _dragStartY = null;
@@ -1010,16 +1366,15 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
 
   Widget _buildSheet(SettingsProvider settings) {
     final btnsActive = _sheetVisible && !_isSaving && !_isCropMode;
-    // Automatische und präzise Erkennung der System-Navigationsleiste
     final mq = MediaQuery.of(context);
     final bottomPad = mq.viewPadding.bottom > 0
         ? mq.viewPadding.bottom
         : mq.padding.bottom;
 
     return GestureDetector(
-      onVerticalDragStart:  _onSheetDragStart,
+      onVerticalDragStart: _onSheetDragStart,
       onVerticalDragUpdate: _onSheetDragUpdate,
-      onVerticalDragEnd:    _onSheetDragEnd,
+      onVerticalDragEnd: _onSheetDragEnd,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
@@ -1047,7 +1402,8 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Center(
                 child: Container(
-                  width: 40, height: 4,
+                  width: 40,
+                  height: 4,
                   decoration: BoxDecoration(
                     color: _istDunkel
                         ? Colors.grey.shade600
@@ -1065,14 +1421,14 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                     onChange: (size) {
                       if (!_sheetMeasured) {
                         final mq2 = MediaQuery.of(context);
-                        final bp  = mq2.viewPadding.bottom > 0
+                        final bp = mq2.viewPadding.bottom > 0
                             ? mq2.viewPadding.bottom
                             : mq2.padding.bottom;
                         final fullH = size.height + 20 + _sheetCollapsedH + bp;
                         setState(() {
-                          _sheetExpandedH  = fullH.clamp(120.0, 320.0);
-                          _sheetCurrentH   = _sheetExpandedH;
-                          _sheetMeasured   = true;
+                          _sheetExpandedH = fullH.clamp(120.0, 320.0);
+                          _sheetCurrentH = _sheetExpandedH;
+                          _sheetMeasured = true;
                         });
                       }
                     },
@@ -1085,26 +1441,46 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                           _sectionHeader(_t('color')),
                           Row(
                             children: [
-                              Expanded(child: _sliderCompact(
-                                'brightness', Icons.wb_sunny_outlined,
-                                _brightness, _onBrightnessChanged, settings,
-                                active: btnsActive,
-                              )),
-                              Expanded(child: _sliderCompact(
-                                'contrast', Icons.contrast_outlined,
-                                _contrast, _onContrastChanged, settings,
-                                active: btnsActive,
-                              )),
-                              Expanded(child: _sliderCompact(
-                                'saturation', Icons.color_lens_outlined,
-                                _saturation, _onSaturationChanged, settings,
-                                active: btnsActive,
-                              )),
-                              Expanded(child: _sliderCompact(
-                                'sharpness', Icons.details_outlined,
-                                _sharpness, _onSharpnessChanged, settings,
-                                active: btnsActive,
-                              )),
+                              Expanded(
+                                child: _sliderCompact(
+                                  'brightness',
+                                  Icons.wb_sunny_outlined,
+                                  _brightness,
+                                  _onBrightnessChanged,
+                                  settings,
+                                  active: btnsActive,
+                                ),
+                              ),
+                              Expanded(
+                                child: _sliderCompact(
+                                  'contrast',
+                                  Icons.contrast_outlined,
+                                  _contrast,
+                                  _onContrastChanged,
+                                  settings,
+                                  active: btnsActive,
+                                ),
+                              ),
+                              Expanded(
+                                child: _sliderCompact(
+                                  'saturation',
+                                  Icons.color_lens_outlined,
+                                  _saturation,
+                                  _onSaturationChanged,
+                                  settings,
+                                  active: btnsActive,
+                                ),
+                              ),
+                              Expanded(
+                                child: _sliderCompact(
+                                  'sharpness',
+                                  Icons.details_outlined,
+                                  _sharpness,
+                                  _onSharpnessChanged,
+                                  settings,
+                                  active: btnsActive,
+                                ),
+                              ),
                             ],
                           ),
                           _divider(),
@@ -1132,10 +1508,10 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                               ),
                               _iconLabelBtn(
                                 icon: Icons.tune_outlined,
-                                label: _t('reset_all'),
+                                label: _t('reset'),
                                 color: Colors.orangeAccent,
                                 active: btnsActive,
-                                onTap: _resetSlidersOnly,
+                                onTap: _resetSliders,
                               ),
                               _iconLabelBtn(
                                 icon: Icons.restore,
@@ -1176,15 +1552,15 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }
 
   Widget _divider() => SizedBox(
-    height: 24,
-    child: Center(
-      child: Container(
-        height: 1,
-        width: double.infinity,
-        color: _istDunkel ? Colors.grey.shade700 : Colors.grey.shade300,
-      ),
-    ),
-  );
+        height: 24,
+        child: Center(
+          child: Container(
+            height: 1,
+            width: double.infinity,
+            color: _istDunkel ? Colors.grey.shade700 : Colors.grey.shade300,
+          ),
+        ),
+      );
 
   Widget _sliderCompact(
     String key,
@@ -1196,10 +1572,13 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   }) {
     return Column(mainAxisSize: MainAxisSize.min, children: [
       Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 12,
-            color: active
-                ? (_istDunkel ? Colors.white60 : Colors.grey.shade600)
-                : Colors.grey.shade500),
+        Icon(
+          icon,
+          size: 12,
+          color: active
+              ? (_istDunkel ? Colors.white60 : Colors.grey.shade600)
+              : Colors.grey.shade500,
+        ),
         const SizedBox(width: 2),
         Flexible(
           child: Text(
@@ -1223,9 +1602,13 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         ),
         child: Slider(
           value: value,
-          min: 0.0, max: 2.0, divisions: 100,
+          min: 0.0,
+          max: 2.0,
+          divisions: 100,
           label: value.toStringAsFixed(1),
+          onChangeStart: active ? (_) => _onSliderDragStart() : null,
           onChanged: active ? onChange : null,
+          onChangeEnd: active ? (_) => _onSliderDragEnd() : null,
           activeColor: active ? s.appButtonColor : Colors.grey.shade500,
           inactiveColor: Colors.grey.shade600,
         ),
@@ -1274,8 +1657,11 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
-        child: SizedBox(width: 48, height: 48,
-            child: Center(child: child)),
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Center(child: child),
+        ),
       ),
     );
   }
@@ -1291,7 +1677,7 @@ img.Image _applyImageAdjustments(
   img.Image result = img.adjustColor(
     source,
     brightness: brightness,
-    contrast:   contrast,
+    contrast: contrast,
     saturation: saturation,
   );
 
@@ -1299,13 +1685,13 @@ img.Image _applyImageAdjustments(
     if (sharpness > 1.0) {
       final amount = (sharpness - 1.0) * 0.8;
       final center = 1.0 + 4.0 * amount;
-      final edge   = -amount;
+      final edge = -amount;
       result = img.convolution(
         result,
         filter: [
-          0,    edge,   0,
+          0, edge, 0,
           edge, center, edge,
-          0,    edge,   0,
+          0, edge, 0,
         ],
       );
     } else {
@@ -1315,9 +1701,9 @@ img.Image _applyImageAdjustments(
       result = img.convolution(
         result,
         filter: [
-          0,    edge,   0,
+          0, edge, 0,
           edge, center, edge,
-          0,    edge,   0,
+          0, edge, 0,
         ],
       );
     }
@@ -1357,10 +1743,10 @@ class _MeasureSizeState extends State<MeasureSize> {
 
 class _PreviewParams {
   final Uint8List baseImageBytes;
-  final double    brightness;
-  final double    contrast;
-  final double    saturation;
-  final double    sharpness;
+  final double brightness;
+  final double contrast;
+  final double saturation;
+  final double sharpness;
 
   const _PreviewParams({
     required this.baseImageBytes,
@@ -1378,9 +1764,9 @@ Uint8List? _renderPreviewInBackground(_PreviewParams p) {
     final out = _applyImageAdjustments(
       base,
       brightness: p.brightness,
-      contrast:   p.contrast,
+      contrast: p.contrast,
       saturation: p.saturation,
-      sharpness:  p.sharpness,
+      sharpness: p.sharpness,
     );
     return Uint8List.fromList(img.encodeJpg(out, quality: 92));
   } catch (_) {
@@ -1390,11 +1776,11 @@ Uint8List? _renderPreviewInBackground(_PreviewParams p) {
 
 class _SaveParams {
   final Uint8List baseImageBytes;
-  final double    brightness;
-  final double    contrast;
-  final double    saturation;
-  final double    sharpness;
-  final String    originalPath;
+  final double brightness;
+  final double contrast;
+  final double saturation;
+  final double sharpness;
+  final String originalPath;
 
   const _SaveParams({
     required this.baseImageBytes,
@@ -1407,7 +1793,7 @@ class _SaveParams {
 }
 
 class _SaveResult {
-  final bool    success;
+  final bool success;
   final String? error;
   const _SaveResult({required this.success, this.error});
 }
@@ -1421,9 +1807,9 @@ _SaveResult _saveInBackground(_SaveParams p) {
     final out = _applyImageAdjustments(
       base,
       brightness: p.brightness,
-      contrast:   p.contrast,
+      contrast: p.contrast,
       saturation: p.saturation,
-      sharpness:  p.sharpness,
+      sharpness: p.sharpness,
     );
     final bytes = Uint8List.fromList(img.encodeJpg(out, quality: 95));
     File(p.originalPath).writeAsBytesSync(bytes);
@@ -1434,21 +1820,59 @@ _SaveResult _saveInBackground(_SaveParams p) {
 }
 
 enum _DragType {
-  topLeft, topRight, bottomLeft, bottomRight,
-  top, bottom, left, right,
+  topLeft,
+  topRight,
+  bottomLeft,
+  bottomRight,
+  top,
+  bottom,
+  left,
+  right,
+}
+
+class _TransformOp {
+  final int? rotation;
+  final Rect? crop;
+  const _TransformOp.rotation(this.rotation) : crop = null;
+  const _TransformOp.cropping(this.crop) : rotation = null;
+}
+
+/// Snapshot des kompletten Editor-Zustands – nur für Undo/Redo in dieser Session.
+class _EditorSnapshot {
+  final List<_TransformOp> transforms;
+  final double brightness;
+  final double contrast;
+  final double saturation;
+  final double sharpness;
+  final double sessionInitialBrightness;
+  final double sessionInitialContrast;
+  final double sessionInitialSaturation;
+  final double sessionInitialSharpness;
+
+  const _EditorSnapshot({
+    required this.transforms,
+    required this.brightness,
+    required this.contrast,
+    required this.saturation,
+    required this.sharpness,
+    required this.sessionInitialBrightness,
+    required this.sessionInitialContrast,
+    required this.sessionInitialSaturation,
+    required this.sessionInitialSharpness,
+  });
 }
 
 class _DragHandle {
   final _DragType type;
-  final Offset    pos;
+  final Offset pos;
   _DragHandle(this.type, this.pos);
 }
 
 class _CropPainter extends CustomPainter {
-  final Rect   cropRect;
-  final Size   fullSize;
+  final Rect cropRect;
+  final Size fullSize;
   final double handleSize;
-  final bool   isDark;
+  final bool isDark;
 
   _CropPainter({
     required this.cropRect,
@@ -1473,8 +1897,7 @@ class _CropPainter extends CustomPainter {
         Rect.fromLTWH(0, cropRect.top, cropRect.left, cropRect.height), dim);
     canvas.drawRect(
         Rect.fromLTWH(
-            cropRect.right, cropRect.top,
-            w - cropRect.right, cropRect.height),
+            cropRect.right, cropRect.top, w - cropRect.right, cropRect.height),
         dim);
 
     canvas.drawRect(
@@ -1491,24 +1914,32 @@ class _CropPainter extends CustomPainter {
       ..color = Colors.white.withValues(alpha: 0.5);
     for (int i = 1; i < 3; i++) {
       canvas.drawLine(
-        Offset(cropRect.left + cropRect.width  / 3 * i, cropRect.top),
-        Offset(cropRect.left + cropRect.width  / 3 * i, cropRect.bottom),
-        grid);
+        Offset(cropRect.left + cropRect.width / 3 * i, cropRect.top),
+        Offset(cropRect.left + cropRect.width / 3 * i, cropRect.bottom),
+        grid,
+      );
       canvas.drawLine(
         Offset(cropRect.left, cropRect.top + cropRect.height / 3 * i),
         Offset(cropRect.right, cropRect.top + cropRect.height / 3 * i),
-        grid);
+        grid,
+      );
     }
 
-    final fill   = Paint()..color = Colors.white..style = PaintingStyle.fill;
-    final border = Paint()..color = Colors.cyanAccent
-        ..style = PaintingStyle.stroke..strokeWidth = 2;
+    final fill = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    final border = Paint()
+      ..color = Colors.cyanAccent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
     for (final p in [
-      cropRect.topLeft, cropRect.topRight,
-      cropRect.bottomLeft, cropRect.bottomRight,
+      cropRect.topLeft,
+      cropRect.topRight,
+      cropRect.bottomLeft,
+      cropRect.bottomRight,
       Offset(cropRect.center.dx, cropRect.top),
       Offset(cropRect.center.dx, cropRect.bottom),
-      Offset(cropRect.left,  cropRect.center.dy),
+      Offset(cropRect.left, cropRect.center.dy),
       Offset(cropRect.right, cropRect.center.dy),
     ]) {
       final r = Rect.fromCenter(center: p, width: handleSize, height: handleSize);
@@ -1559,7 +1990,9 @@ class _BildVollbildScreenState extends State<BildVollbildScreen> {
       }
     } catch (e) {
       debugPrint('Cache evict: $e');
-      try { PaintingBinding.instance.imageCache.clear(); } catch (_) {}
+      try {
+        PaintingBinding.instance.imageCache.clear();
+      } catch (_) {}
     }
   }
 
@@ -1570,7 +2003,7 @@ class _BildVollbildScreenState extends State<BildVollbildScreen> {
       MaterialPageRoute(
         builder: (_) => EditScreen(
           imageDataPath: widget.bildPfad,
-          originalPath:  widget.bildPfad,
+          originalPath: widget.bildPfad,
         ),
       ),
     );
@@ -1583,9 +2016,9 @@ class _BildVollbildScreenState extends State<BildVollbildScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dark       = Theme.of(context).brightness == Brightness.dark;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final kreisFarbe = dark ? Colors.black : Colors.white;
-    final symFarbe   = dark ? Colors.white : Colors.black;
+    final symFarbe = dark ? Colors.white : Colors.black;
 
     final bild = widget.bildPfad.startsWith('http')
         ? Image.network(
@@ -1613,32 +2046,46 @@ class _BildVollbildScreenState extends State<BildVollbildScreen> {
               child: bild,
             ),
           ),
-          Positioned(top: 0, left: 0,
+          Positioned(
+            top: 0,
+            left: 0,
             child: SafeArea(
-              child: Padding(padding: const EdgeInsets.all(8),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
                 child: Material(
-                  color: kreisFarbe, elevation: 3, shape: const CircleBorder(),
+                  color: kreisFarbe,
+                  elevation: 3,
+                  shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
                     onTap: () => Navigator.of(context).pop(),
-                    child: Padding(padding: const EdgeInsets.all(10),
-                      child: Icon(Icons.close, size: 28, color: symFarbe)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Icon(Icons.close, size: 28, color: symFarbe),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
           if (!widget.bildPfad.startsWith('http'))
-            Positioned(top: 0, right: 0,
+            Positioned(
+              top: 0,
+              right: 0,
               child: SafeArea(
-                child: Padding(padding: const EdgeInsets.all(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
                   child: Material(
-                    color: kreisFarbe, elevation: 3, shape: const CircleBorder(),
+                    color: kreisFarbe,
+                    elevation: 3,
+                    shape: const CircleBorder(),
                     child: InkWell(
                       customBorder: const CircleBorder(),
                       onTap: _oeffneEditor,
-                      child: Padding(padding: const EdgeInsets.all(12),
-                        child: Icon(Icons.edit, size: 24, color: symFarbe)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Icon(Icons.edit, size: 24, color: symFarbe),
+                      ),
                     ),
                   ),
                 ),
