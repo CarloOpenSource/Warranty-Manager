@@ -782,13 +782,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _currentZoomScale = 1.0;
   }
 
-  void _applyZoom(double targetScale) {
-    _zoomController.value =
-        Matrix4.diagonal3Values(targetScale, targetScale, 1.0);
-    _currentZoomScale = targetScale;
-    setState(() {});
-  }
-
   double _getEffectiveMargin() {
     if (_isCropMode) return _previewMargin;
     if (_currentZoomScale <= 1.0) return _previewMargin;
@@ -1584,12 +1577,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                                 label: _t('rotate_right'),
                                 active: btnsActive,
                                 onTap: _rotateRight,
-                              ),
-                              _iconLabelBtn(
-                                icon: Icons.fit_screen,
-                                label: _t('fit_to_screen'),
-                                active: btnsActive,
-                                onTap: () => _applyZoom(1.0),
                               ),
                               _iconLabelBtn(
                                 icon: Icons.tune_outlined,
