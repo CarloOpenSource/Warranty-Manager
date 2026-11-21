@@ -13,35 +13,13 @@ const _kBottomRadius = BorderRadius.only(
 );
 const _kAllRadius = BorderRadius.all(Radius.circular(_kCardRadius));
 
-/// Baut eine [Card] mit mehreren [ListTile]-Einträgen, bei denen der
-/// Ink-Ripple exakt an die abgerundeten Ecken angepasst ist:
+/// Baut eine [Card] mit mehreren Einträgen, bei denen der Ink-Ripple exakt
+/// an die abgerundeten Ecken angepasst ist:
 ///
-///  • erstes Element  → oben abgerundet
-///  • letztes Element → unten abgerundet
+///  • erstes Element   → oben abgerundet
+///  • letztes Element  → unten abgerundet
 ///  • einziges Element → rundum abgerundet
 ///  • mittlere Elemente → eckig (liegen nie an einer Kartenecke)
-///
-/// [items] ist eine Liste von [GroupedCardItem]-Objekten.
-/// Optionaler [elevation] und [margin] werden direkt an die [Card] weitergegeben.
-///
-/// Beispiel:
-/// ```dart
-/// GroupedCard(
-///   items: [
-///     GroupedCardItem(
-///       leading: const Icon(Icons.dark_mode),
-///       title: const Text('Dark Mode'),
-///       onTap: () { … },
-///     ),
-///     GroupedCardItem(
-///       leading: const Icon(Icons.language),
-///       title: const Text('Sprache'),
-///       onTap: () { … },
-///       dividerAbove: true,  // Trennlinie vor diesem Eintrag (Standard: true)
-///     ),
-///   ],
-/// )
-/// ```
 class GroupedCard extends StatelessWidget {
   final List<GroupedCardItem> items;
   final double elevation;
@@ -61,8 +39,6 @@ class GroupedCard extends StatelessWidget {
     return Card(
       elevation: elevation,
       margin: margin,
-      // clipBehavior ist im CardTheme (main.dart) bereits gesetzt,
-      // hier nochmals explizit für den Fall, dass jemand den Theme überschreibt.
       clipBehavior: Clip.antiAlias,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(_kCardRadius)),
@@ -81,7 +57,6 @@ class GroupedCard extends StatelessWidget {
 
   Widget _buildTile(
       BuildContext context, GroupedCardItem item, int index, int total) {
-    // Welche Ecken soll der Ripple abrunden?
     final BorderRadius radius;
     if (total == 1) {
       radius = _kAllRadius;
@@ -94,20 +69,15 @@ class GroupedCard extends StatelessWidget {
     }
 
     if (item.isSwitchTile) {
-      // SwitchListTile hat kein eigenes borderRadius-Argument.
-      // Wir wrappen es in ein InkWell mit der richtigen Form.
-      // Das SwitchListTile selbst wird mit splashColor transparent
-      // gemacht, damit kein doppelter Ripple entsteht.
       return item._buildSwitch(radius);
     }
-
     return item._buildTile(radius);
   }
 }
 
 /// Beschreibt einen einzelnen Eintrag in einer [GroupedCard].
 class GroupedCardItem {
-  // ── Standard ListTile ──────────────────────────────────────────────────
+  // ── Standard ListTile ────────────────────────────────────────────────
   final Widget? leading;
   final Widget? title;
   final Widget? subtitle;
@@ -115,7 +85,7 @@ class GroupedCardItem {
   final VoidCallback? onTap;
   final bool dividerAbove;
 
-  // ── Switch-Variante ───────────────────────────────────────────────────
+  // ── Switch-Variante ──────────────────────────────────────────────────
   final bool isSwitchTile;
   final bool? switchValue;
   final ValueChanged<bool>? onSwitchChanged;
@@ -165,8 +135,14 @@ class GroupedCardItem {
   }
 
   Widget _buildSwitch(BorderRadius radius) {
-    return ClipRRect(
+    // Material mit clipBehavior ist die einzig zuverlässige Methode,
+    // den SwitchListTile-Ripple an den Ecken abzuschneiden.
+    // ClipRRect allein reicht nicht, weil der Ink-Layer von Flutter
+    // ÜBER dem Clip gerendert wird.
+    return Material(
+      type: MaterialType.transparency,
       borderRadius: radius,
+      clipBehavior: Clip.antiAlias,
       child: SwitchListTile(
         secondary: switchSecondary ?? leading,
         title: title!,
