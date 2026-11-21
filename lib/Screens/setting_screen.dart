@@ -16,6 +16,7 @@ import 'gesture_settings_screen.dart';
 import 'notification_settings_screen.dart'; 
 import '../Services/settings_provider.dart';
 import 'color_settings_screen.dart';
+import 'grouped_card.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onRestartTutorial;
@@ -98,16 +99,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // ── Tutorial neu starten ─────────────────────
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  child: ListTile(
-                    leading: const Icon(Icons.school, color: Colors.orange),
-                    title: Text(getText(lang, 'tutorial_restart')),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                    onTap: widget.onRestartTutorial,
-                  ),
+                GroupedCard(
+                  items: [
+                    GroupedCardItem(
+                      leading: const Icon(Icons.school, color: Colors.orange),
+                      title: Text(getText(lang, 'tutorial_restart')),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: widget.onRestartTutorial,
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 24),
 
@@ -120,220 +120,197 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: settings.appButtonColor),
                 ),
                 const SizedBox(height: 8),
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  child: Column(
-                    children: [
-                      // 1. Dark Mode
-                      SwitchListTile(
-                        title: Text(getText(lang, 'dark_mode')),
-                        subtitle: Text(getText(lang, 'dark_mode_desc')),
-                        secondary: Icon(
-                            isDarkMode ? Icons.dark_mode : Icons.light_mode,
-                            color: Colors.indigo),
-                        value: isDarkMode,
-                        onChanged: (bool value) {
-                          settings.setThemeMode(
-                              value ? ThemeMode.dark : ThemeMode.light);
-                        },
-                      ),
-                      const Divider(height: 1),
+                GroupedCard(
+                  items: [
+                    // 1. Dark Mode
+                    GroupedCardItem.switchTile(
+                      switchSecondary: Icon(
+                          isDarkMode ? Icons.dark_mode : Icons.light_mode,
+                          color: Colors.indigo),
+                      title: Text(getText(lang, 'dark_mode')),
+                      subtitle: Text(getText(lang, 'dark_mode_desc')),
+                      value: isDarkMode,
+                      onChanged: (bool value) {
+                        settings.setThemeMode(
+                            value ? ThemeMode.dark : ThemeMode.light);
+                      },
+                      dividerAbove: false,
+                    ),
 
-                      // 2. 12h / 24h
-                      SwitchListTile(
-                        title: Text(is12h
-                            ? getText(lang, 'switch_to_24h')
-                            : getText(lang, 'switch_to_12h')),
-                        secondary: const Icon(Icons.access_time,
-                            color: Colors.orangeAccent),
-                        value: is12h,
-                        onChanged: (bool value) {
-                          settings.setUseAmPm(value);
-                        },
-                      ),
-                      const Divider(height: 1),
+                    // 2. 12h / 24h
+                    GroupedCardItem.switchTile(
+                      switchSecondary: const Icon(Icons.access_time,
+                          color: Colors.orangeAccent),
+                      title: Text(is12h
+                          ? getText(lang, 'switch_to_24h')
+                          : getText(lang, 'switch_to_12h')),
+                      value: is12h,
+                      onChanged: (bool value) {
+                        settings.setUseAmPm(value);
+                      },
+                    ),
 
-                      // 3. Sortierung
-                      ListTile(
-                        leading:
-                            const Icon(Icons.sort, color: Colors.deepPurple),
-                        title: Text(getText(lang, 'sort_by')),
-                        trailing: Text(
-                          _getSortName(lang, settings.sortOrder),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        onTap: () {
-                          _zeigeSortierungsAuswahl(context, settings);
-                        },
+                    // 3. Sortierung
+                    GroupedCardItem(
+                      leading: const Icon(Icons.sort, color: Colors.deepPurple),
+                      title: Text(getText(lang, 'sort_by')),
+                      trailing: Text(
+                        _getSortName(lang, settings.sortOrder),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      const Divider(height: 1),
+                      onTap: () => _zeigeSortierungsAuswahl(context, settings),
+                    ),
 
-                      // 4. Sprache
-                      ListTile(
-                        leading: Icon(Icons.language,
-                            color: settings.appButtonColor),
-                        title: Text(getText(lang, 'language')),
-                        trailing: Text(_getLanguageName(lang),
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
-                        onTap: () {
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            builder: (context) {
-                              return SafeArea(
-                                child: SingleChildScrollView(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Padding(
-                                        padding:
-                                            const EdgeInsets.all(16.0),
-                                        child: Text(
-                                          getText(lang, 'select_language'),
-                                          style: const TextStyle(
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.bold),
-                                        ),
+                    // 4. Sprache
+                    GroupedCardItem(
+                      leading: Icon(Icons.language,
+                          color: settings.appButtonColor),
+                      title: Text(getText(lang, 'language')),
+                      trailing: Text(_getLanguageName(lang),
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      onTap: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          builder: (context) {
+                            return SafeArea(
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.all(16.0),
+                                      child: Text(
+                                        getText(lang, 'select_language'),
+                                        style: const TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold),
                                       ),
-                                      const Divider(height: 1),
-                                      ListTile(
-                                          title: const Text('Deutsch'),
-                                          onTap: () {
-                                            settings.setLanguage('de');
-                                            Navigator.pop(context);
-                                          }),
-                                      ListTile(
-                                          title: const Text('English'),
-                                          onTap: () {
-                                            settings.setLanguage('en');
-                                            Navigator.pop(context);
-                                          }),
-                                      ListTile(
-                                          title: const Text('Français'),
-                                          onTap: () {
-                                            settings.setLanguage('fr');
-                                            Navigator.pop(context);
-                                          }),
-                                      ListTile(
-                                          title: const Text('Español'),
-                                          onTap: () {
-                                            settings.setLanguage('es');
-                                            Navigator.pop(context);
-                                          }),
-                                    ],
-                                  ),
+                                    ),
+                                    const Divider(height: 1),
+                                    ListTile(
+                                        title: const Text('Deutsch'),
+                                        onTap: () {
+                                          settings.setLanguage('de');
+                                          Navigator.pop(context);
+                                        }),
+                                    ListTile(
+                                        title: const Text('English'),
+                                        onTap: () {
+                                          settings.setLanguage('en');
+                                          Navigator.pop(context);
+                                        }),
+                                    ListTile(
+                                        title: const Text('Français'),
+                                        onTap: () {
+                                          settings.setLanguage('fr');
+                                          Navigator.pop(context);
+                                        }),
+                                    ListTile(
+                                        title: const Text('Español'),
+                                        onTap: () {
+                                          settings.setLanguage('es');
+                                          Navigator.pop(context);
+                                        }),
+                                  ],
                                 ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-                      const Divider(height: 1),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
 
-                      // 5. Währung
-                      ListTile(
-                        leading:
-                            const Icon(Icons.attach_money, color: Colors.green),
-                        title: Text(getText(lang, 'currency')),
-                        trailing: Text(
-                          settings.currencySymbol,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                        onTap: () {
-                          _zeigeWaehrungsAuswahl(context, settings);
-                        },
+                    // 5. Währung
+                    GroupedCardItem(
+                      leading:
+                          const Icon(Icons.attach_money, color: Colors.green),
+                      title: Text(getText(lang, 'currency')),
+                      trailing: Text(
+                        settings.currencySymbol,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16),
                       ),
-                      const Divider(height: 1),
+                      onTap: () => _zeigeWaehrungsAuswahl(context, settings),
+                    ),
 
-                      // 6. Wischgesten
-                      ListTile(
-                        leading: const Icon(Icons.swipe, color: Colors.teal),
-                        title: Text(getText(lang, 'swipe_actions')),
-                        subtitle: Text(getText(lang, 'swipe_actions_desc')),
-                        trailing:
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  const GestureSettingsScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      const Divider(height: 1),
+                    // 6. Wischgesten
+                    GroupedCardItem(
+                      leading: const Icon(Icons.swipe, color: Colors.teal),
+                      title: Text(getText(lang, 'swipe_actions')),
+                      subtitle: Text(getText(lang, 'swipe_actions_desc')),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const GestureSettingsScreen(),
+                          ),
+                        );
+                      },
+                    ),
 
-                      // 7. Kalender-Einstellungen
-                      ListTile(
-                        leading: Icon(Icons.calendar_month,
-                            color: settings.appButtonColor),
-                        title: Text(getText(lang, 'calendar_settings')),
-                        subtitle:
-                            Text(getText(lang, 'calendar_settings_desc')),
-                        trailing:
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  const CalendarSettingsScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      const Divider(height: 1),
+                    // 7. Kalender-Einstellungen
+                    GroupedCardItem(
+                      leading: Icon(Icons.calendar_month,
+                          color: settings.appButtonColor),
+                      title: Text(getText(lang, 'calendar_settings')),
+                      subtitle: Text(getText(lang, 'calendar_settings_desc')),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const CalendarSettingsScreen(),
+                          ),
+                        );
+                      },
+                    ),
 
-                      // >>> NEU: Benachrichtigungen
-                      ListTile(
-                        leading: Icon(Icons.notifications_active,
-                            color: settings.appButtonColor),
-                        title: Text(getText(lang, 'notif_settings')),
-                        subtitle:
-                            Text(getText(lang, 'notif_settings_desc')),
-                        trailing:
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  const NotificationSettingsScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
+                    // 8. Benachrichtigungen
+                    GroupedCardItem(
+                      leading: Icon(Icons.notifications_active,
+                          color: settings.appButtonColor),
+                      title: Text(getText(lang, 'notif_settings')),
+                      subtitle: Text(getText(lang, 'notif_settings_desc')),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const NotificationSettingsScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 24),
 
                 // ── Farb-Einstellungen (nur wenn freigeschaltet) ──
                 if (settings.colorPickerUnlocked) ...[
-                  Card(
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    child: ListTile(
-                      leading:
-                          Icon(Icons.palette, color: settings.appButtonColor),
-                      title: Text(getText(lang, 'color_settings')),
-                      subtitle: Text(getText(lang, 'color_settings_desc')),
-                      trailing:
-                          const Icon(Icons.arrow_forward_ios, size: 16),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) =>
-                                  const ColorSettingsScreen()),
-                        );
-                      },
-                    ),
+                  GroupedCard(
+                    items: [
+                      GroupedCardItem(
+                        leading: Icon(Icons.palette,
+                            color: settings.appButtonColor),
+                        title: Text(getText(lang, 'color_settings')),
+                        subtitle: Text(getText(lang, 'color_settings_desc')),
+                        trailing:
+                            const Icon(Icons.arrow_forward_ios, size: 16),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) =>
+                                    const ColorSettingsScreen()),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 24),
                 ],
@@ -347,51 +324,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: settings.appButtonColor),
                 ),
                 const SizedBox(height: 8),
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  child: Column(
-                    children: [
-                      ListTile(
-                        leading:
-                            const Icon(Icons.upload_file, color: Colors.teal),
-                        title: Text(getText(lang, 'export_data')),
-                        trailing:
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () {
-                          _exportieren(context, lang);
-                        },
+                GroupedCard(
+                  items: [
+                    GroupedCardItem(
+                      leading:
+                          const Icon(Icons.upload_file, color: Colors.teal),
+                      title: Text(getText(lang, 'export_data')),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () => _exportieren(context, lang),
+                    ),
+                    GroupedCardItem(
+                      leading: const Icon(Icons.download_for_offline,
+                          color: Colors.amber),
+                      title: Text(getText(lang, 'import_data')),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () => _importieren(context, settings, lang),
+                    ),
+                    GroupedCardItem(
+                      leading: const Icon(Icons.delete_forever,
+                          color: Colors.redAccent),
+                      title: Text(
+                        getText(lang, 'delete_all_data'),
+                        style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.bold),
                       ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.download_for_offline,
-                            color: Colors.amber),
-                        title: Text(getText(lang, 'import_data')),
-                        trailing:
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () {
-                          _importieren(context, settings, lang);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.delete_forever,
-                            color: Colors.redAccent),
-                        title: Text(
-                          getText(lang, 'delete_all_data'),
-                          style: const TextStyle(
-                              color: Colors.redAccent,
-                              fontWeight: FontWeight.bold),
-                        ),
-                        trailing: const Icon(Icons.arrow_forward_ios,
-                            size: 16, color: Colors.redAccent),
-                        onTap: () {
-                          _alleDatenLoeschen(context, settings, lang);
-                        },
-                      ),
-                    ],
-                  ),
+                      trailing: const Icon(Icons.arrow_forward_ios,
+                          size: 16, color: Colors.redAccent),
+                      onTap: () => _alleDatenLoeschen(context, settings, lang),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 24),
 
@@ -404,75 +366,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: settings.appButtonColor),
                 ),
                 const SizedBox(height: 8),
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  child: Column(
-                    children: [
-                      ListTile(
-                        leading: Icon(Icons.info_outline,
-                            color: settings.appButtonColor),
-                        title: Text(getText(lang, 'app_version')),
-                        onTap: () => _onVersionTap(context, settings, lang),
-                        trailing: FutureBuilder<String>(
-                          future: _getAppVersion(),
-                          builder: (context, snapshot) {
-                            final versionText = snapshot.hasData ? 'v${snapshot.data}' : getText(lang, 'loading');
-                            return Text(
-                              versionText,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey),
-                            );
-                          },
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.security,
-                            color: Colors.deepOrange),
-                        title: Text(getText(lang, 'privacy_policy')),
-                        trailing:
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () {
-                          _zeigeDatenschutzerklaerung(context, lang);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.gavel, color: Colors.purple),
-                        title: Text(getText(lang, 'imprint')),
-                        trailing:
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () {
-                          _zeigeImpressum(context, lang);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.code, color: Colors.grey),
-                        title: Text(getText(lang, 'licenses')),
-                        trailing:
-                            const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () async {
-                          final version = await _getAppVersion();
-                          if (!context.mounted) return;
-
-                          showLicensePage(
-                            context: context,
-                            applicationName: getText(lang, 'app_title'),
-                            applicationVersion: 'v$version',
-                            applicationIcon: Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Image.asset('assets/logo.png',
-                                  width: 64, height: 64),
-                            ),
+                GroupedCard(
+                  items: [
+                    GroupedCardItem(
+                      leading: Icon(Icons.info_outline,
+                          color: settings.appButtonColor),
+                      title: Text(getText(lang, 'app_version')),
+                      trailing: FutureBuilder<String>(
+                        future: _getAppVersion(),
+                        builder: (context, snapshot) {
+                          final versionText = snapshot.hasData
+                              ? 'v${snapshot.data}'
+                              : getText(lang, 'loading');
+                          return Text(
+                            versionText,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey),
                           );
                         },
                       ),
-                    ],
-                  ),
+                      onTap: () => _onVersionTap(context, settings, lang),
+                    ),
+                    GroupedCardItem(
+                      leading: const Icon(Icons.security,
+                          color: Colors.deepOrange),
+                      title: Text(getText(lang, 'privacy_policy')),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () => _zeigeDatenschutzerklaerung(context, lang),
+                    ),
+                    GroupedCardItem(
+                      leading:
+                          const Icon(Icons.gavel, color: Colors.purple),
+                      title: Text(getText(lang, 'imprint')),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () => _zeigeImpressum(context, lang),
+                    ),
+                    GroupedCardItem(
+                      leading: const Icon(Icons.code, color: Colors.grey),
+                      title: Text(getText(lang, 'licenses')),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () async {
+                        final version = await _getAppVersion();
+                        if (!context.mounted) return;
+                        showLicensePage(
+                          context: context,
+                          applicationName: getText(lang, 'app_title'),
+                          applicationVersion: 'v$version',
+                          applicationIcon: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Image.asset('assets/logo.png',
+                                width: 64, height: 64),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),

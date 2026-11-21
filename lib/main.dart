@@ -189,6 +189,23 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.blue,
           scaffoldBackgroundColor: const Color(0xFFF4F6F9),
           cardColor: Colors.white,
+          // ── Ripple-Effekt: weich, abgerundet, passt sich der Form an ────
+          // InkSparkle ist der moderne Ripple (Material 3), der sich an die
+          // clipBehavior der umgebenden Card/Container anpasst.
+          // Fallback auf InkRipple für ältere Android-Versionen.
+          splashFactory: InkSparkle.splashFactory,
+          cardTheme: const CardThemeData(
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+          ),
+          // ListTile-Ripple ebenfalls weich und abgerundet
+          listTileTheme: const ListTileThemeData(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+          ),
         ),
       ),
 
@@ -198,6 +215,19 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.blue,
           scaffoldBackgroundColor: const Color(0xFF121212),
           cardColor: const Color(0xFF1E1E1E),
+          // ── identisch wie Light-Theme ────────────────────────────────────
+          splashFactory: InkSparkle.splashFactory,
+          cardTheme: const CardThemeData(
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+          ),
+          listTileTheme: const ListTileThemeData(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+          ),
         ),
       ),
       home: missingFiles.isNotEmpty
