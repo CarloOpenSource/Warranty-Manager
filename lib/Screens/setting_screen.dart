@@ -16,7 +16,7 @@ import 'gesture_settings_screen.dart';
 import 'notification_settings_screen.dart'; 
 import '../Services/settings_provider.dart';
 import 'color_settings_screen.dart';
-import 'grouped_card.dart';
+import '../Services/Helpers/grouped_card.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback onRestartTutorial;
