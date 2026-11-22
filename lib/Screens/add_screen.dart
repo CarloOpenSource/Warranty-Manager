@@ -13,6 +13,7 @@ import 'package:garantiemanager/Manual/tutorial.dart';
 import 'dart:convert';
 import '../Services/calender_service.dart';
 import 'package:garantiemanager/Screens/edit_screen.dart';
+import 'package:garantiemanager/Services/ocr_service.dart';
 
 class _SettingsTimeLocalizations extends DefaultMaterialLocalizations {
   final String lang;
@@ -81,6 +82,7 @@ class AddScreen extends StatefulWidget {
 class _AddScreenState extends State<AddScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _woGekauftController = TextEditingController();
+  final TextEditingController _herstellerController = TextEditingController();
   final TextEditingController _preisController = TextEditingController();
   final TextEditingController _eigeneGarantieController = TextEditingController(text: '1');
   final TextEditingController _bemerkungController = TextEditingController();
@@ -116,6 +118,7 @@ class _AddScreenState extends State<AddScreen> {
 
   bool _nameError = false;
   bool _woGekauftError = false;
+  bool _herstellerError = false;
   bool _preisError = false;
   bool _fotoError = false;
   bool _dauerError = false;
@@ -185,7 +188,8 @@ class _AddScreenState extends State<AddScreen> {
       _preisController.text = rawPreis.replaceAll(RegExp(r'[^\d.,]'), '').trim();
 
       _woGekauftController.text = (g['woGekauft'] == 'Unbekannt') ? '' : (g['woGekauft'] ?? '');
-      _selectedWaehrung = g['waehrung'];
+      _herstellerController.text = (g['hersteller'] == 'Unbekannt') ? '' : (g['hersteller'] ?? '');
+       _selectedWaehrung = g['waehrung'];
       _bemerkungController.text = g['bemerkung'] ?? '';
 
       if (g['kategorie'] != null && _kategorieKeys.contains(g['kategorie'])) {
@@ -311,6 +315,7 @@ class _AddScreenState extends State<AddScreen> {
     _eigeneGarantieController.dispose();
     _nameController.dispose();
     _woGekauftController.dispose();
+    _herstellerController.dispose();
     _preisController.dispose();
     _bemerkungController.dispose();
     super.dispose();
@@ -503,6 +508,132 @@ class _AddScreenState extends State<AddScreen> {
     } finally {
       try { await raf?.close(); } catch (_) {}
     }
+  }
+
+  Future<void> _analysiereFoto(String bildPfad) async {
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    final lang = settings.languageCode;
+    if (!settings.useOcr) return;
+
+    try {
+      // Ask user: whole receipt or region
+      final wahl = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(getText(lang, 'ocr_analyze')),
+          content: Text(getText(lang, 'ocr_offline_hint')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'region'),
+              child: Text(getText(lang, 'ocr_select_region')),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, 'whole'),
+              child: Text(getText(lang, 'ocr_whole_receipt')),
+            ),
+          ],
+        ),
+      );
+
+      String text = '';
+      if (wahl == 'region') {
+        final region = await _waehleBereich(bildPfad);
+        if (region == null) {
+          return;
+        }
+        text = await OcrService.instance.recognizeRegion(bildPfad, region);
+      } else {
+        text = await OcrService.instance.recognizeText(bildPfad);
+      }
+
+      if (text.trim().isEmpty) {
+        if (mounted) _zeigeFehler(getText(lang, 'ocr_no_text'));
+        return;
+      }
+
+      final candidates = OcrService.extractCandidates(text);
+      Map<String, String>? gewaehlt;
+      if (candidates.length > 1 &&
+          candidates.any((c) => (c['name'] ?? '').isNotEmpty)) {
+        gewaehlt = await _waehleKandidat(lang, candidates);
+        // use parsed full if nothing selected
+        gewaehlt ??= OcrService.parseFields(text);
+      } else {
+        gewaehlt = OcrService.parseFields(text);
+      }
+
+      if (!mounted) return;
+      final g = gewaehlt;
+      setState(() {
+        if ((g['name'] ?? '').isNotEmpty) {
+          _nameController.text = g['name']!;
+        }
+        final kat = g['kategorie'];
+        if (kat != null && kat.isNotEmpty && _kategorieKeys.contains(kat)) {
+          _kategorie = kat;
+        }
+        if ((g['woGekauft'] ?? '').isNotEmpty) {
+          _woGekauftController.text = g['woGekauft']!;
+        }
+        if ((g['hersteller'] ?? '').isNotEmpty) {
+          _herstellerController.text = g['hersteller']!;
+        }
+        if ((g['preis'] ?? '').isNotEmpty) {
+          _preisController.text = g['preis']!;
+        }
+        if ((g['kaufDatum'] ?? '').isNotEmpty) {
+          try {
+            final teile = g['kaufDatum']!.split('.');
+            if (teile.length == 3) {
+              _kaufDatum = DateTime(int.parse(teile[2]), int.parse(teile[1]), int.parse(teile[0]));
+              _updateReminderLimits();
+            }
+          } catch (_) {}
+        }
+      });
+    } catch (e) {
+      if (mounted) _zeigeFehler(getText(lang, 'error_loading_file'));
+    }
+  }
+
+  Future<Rect?> _waehleBereich(String bildPfad) async {
+    return showDialog<Rect>(
+      context: context,
+      builder: (ctx) => _RegionSelectorDialog(bildPfad: bildPfad),
+    );
+  }
+
+  Future<Map<String, String>?> _waehleKandidat(
+      String lang, List<Map<String, String>> candidates) async {
+    return showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(getText(lang, 'ocr_candidates_title')),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: candidates.length,
+            itemBuilder: (context, index) {
+              final c = candidates[index];
+              final name = (c['name'] ?? '').isEmpty ? getText(lang, 'unknown') : c['name']!;
+              final preis = c['preis'] ?? '';
+              return ListTile(
+                title: Text(name),
+                subtitle: preis.isNotEmpty ? Text(preis) : null,
+                onTap: () => Navigator.pop(ctx, c),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: Text(getText(lang, 'cancel')),
+          ),
+        ],
+      ),
+    );
   }
 
   void _toggleKachelAuswahl(String pfad) {
@@ -753,6 +884,19 @@ class _AddScreenState extends State<AddScreen> {
     return stores;
   }
 
+  List<String> _getHerstellerVorschlaegeList() {
+    if (widget.existingDevices == null) return [];
+    List<String> list = widget.existingDevices!
+        .map((e) => (e['hersteller'] ?? '').toUpperCase())
+        .where((s) => s.isNotEmpty && s != 'UNBEKANNT')
+        .toSet()
+        .toList();
+    if (list.length > 1) {
+      list.insert(0, '');
+    }
+    return list;
+  }
+
   Future<void> _speichern() async {
     final settings = Provider.of<SettingsProvider>(context, listen: false);
     final lang = settings.languageCode;
@@ -760,6 +904,7 @@ class _AddScreenState extends State<AddScreen> {
     setState(() {
       _nameError = false;
       _woGekauftError = false;
+      _herstellerError = false;
       _preisError = false;
       _fotoError = false;
       _dauerError = false;
@@ -771,6 +916,7 @@ class _AddScreenState extends State<AddScreen> {
     final String name = _nameController.text.trim();
     String rawPreis = _preisController.text.trim().replaceAll(',', '.');
     final String woGekauft = _woGekauftController.text.trim().toUpperCase();
+    final String hersteller = _herstellerController.text.trim();
 
     if (!widget.isFromTutorial) {
       if (name.isEmpty) {
@@ -799,6 +945,12 @@ class _AddScreenState extends State<AddScreen> {
         _woGekauftError = true;
         hasError = true;
         errorMsg += '${getText(lang, "error_store_missing")}\n';
+      }
+
+      if (hersteller.isEmpty) {
+        _herstellerError = true;
+        hasError = true;
+        errorMsg += '${getText(lang, "error_manufacturer_missing")}\n';
       }
 
       if (_istEigeneGarantieSelected) {
@@ -891,6 +1043,7 @@ class _AddScreenState extends State<AddScreen> {
       final notificationGerat = <String, String>{
         'name': name,
         'woGekauft': woGekauft,
+        'hersteller': hersteller,
         'preis': rawPreis,
         'waehrung': _selectedWaehrung ?? '€',
         'kaufDatum': _formatDateStr(_kaufDatum.day, _kaufDatum.month, _kaufDatum.year),
@@ -1147,6 +1300,51 @@ class _AddScreenState extends State<AddScreen> {
                               const SizedBox(height: 16),
 
                               TextField(
+                                controller: _herstellerController,
+                                textCapitalization: TextCapitalization.characters,
+                                inputFormatters: [LengthLimitingTextInputFormatter(15)],
+                                decoration: InputDecoration(
+                                  labelText: getText(lang, 'manufacturer'),
+                                  prefixIcon: const Icon(Icons.business),
+                                  suffixIcon: _getHerstellerVorschlaegeList().isNotEmpty
+                                      ? PopupMenuButton<String>(
+                                          icon: const Icon(Icons.arrow_drop_down, size: 24),
+                                          position: PopupMenuPosition.under,
+                                          onSelected: (String newValue) {
+                                            setState(() {
+                                              _herstellerController.text = newValue;
+                                              _herstellerError = false;
+                                            });
+                                          },
+                                          itemBuilder: (BuildContext context) {
+                                            return _getHerstellerVorschlaegeList().map((h) {
+                                              return PopupMenuItem<String>(
+                                                value: h,
+                                                child: ConstrainedBox(
+                                                  constraints: const BoxConstraints(maxWidth: 150),
+                                                  child: Text(
+                                                    h.isEmpty ? getText(lang, 'select_empty') : h,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    maxLines: 1,
+                                                  ),
+                                                ),
+                                              );
+                                            }).toList();
+                                          },
+                                        )
+                                      : null,
+                                  enabledBorder: OutlineInputBorder(
+                                      borderSide: BorderSide(color: _herstellerError ? Colors.red : Colors.grey)),
+                                  focusedBorder: OutlineInputBorder(
+                                      borderSide: BorderSide(
+                                          color: _herstellerError ? Colors.red : settings.appButtonColor, width: 2)),
+                                ),
+                                onChanged: (_) => setState(() => _herstellerError = false),
+                              ),
+
+                              const SizedBox(height: 16),
+
+                              TextField(
                                 controller: _preisController,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                 inputFormatters: [
@@ -1189,23 +1387,33 @@ class _AddScreenState extends State<AddScreen> {
 
                               const SizedBox(height: 16),
 
-                              InkWell(
-                                onTap: _kaufDatumAuswaehlen,
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                      border: Border.all(color: Colors.grey),
-                                      borderRadius: BorderRadius.circular(4)),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                          '${_kaufDatum.day.toString().padLeft(2, '0')}.${_kaufDatum.month.toString().padLeft(2, '0')}.${_kaufDatum.year}',
-                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                                      Icon(Icons.calendar_today, color: settings.appButtonColor),
-                                    ],
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    getText(lang, 'buy_date'),
+                                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                                   ),
-                                ),
+                                  const SizedBox(height: 4),
+                                  InkWell(
+                                    onTap: _kaufDatumAuswaehlen,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                          border: Border.all(color: Colors.grey),
+                                          borderRadius: BorderRadius.circular(4)),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                              '${_kaufDatum.day.toString().padLeft(2, '0')}.${_kaufDatum.month.toString().padLeft(2, '0')}.${_kaufDatum.year}',
+                                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                          Icon(Icons.calendar_today, color: settings.appButtonColor),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -1505,6 +1713,48 @@ class _AddScreenState extends State<AddScreen> {
                             ),
                           ],
                           const SizedBox(height: 8),
+                          if (settings.useOcr)
+                            DragTarget<String>(
+                              onWillAcceptWithDetails: (details) => true,
+                              onAcceptWithDetails: (details) {
+                                _analysiereFoto(details.data);
+                              },
+                              builder: (context, candidateData, rejectedData) {
+                                final aktiv = candidateData.isNotEmpty;
+                                return Container(
+                                  width: double.infinity,
+                                  height: 44,
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  decoration: BoxDecoration(
+                                    color: aktiv
+                                        ? settings.appButtonColor.withValues(alpha: 0.18)
+                                        : Colors.grey.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: aktiv ? settings.appButtonColor : Colors.grey.shade300,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.document_scanner,
+                                            size: 18,
+                                            color: aktiv ? settings.appButtonColor : Colors.grey),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          getText(lang, 'drag_to_analyze'),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: aktiv ? settings.appButtonColor : Colors.grey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 4),
                             child: Text(
@@ -1528,9 +1778,23 @@ class _AddScreenState extends State<AddScreen> {
                               children: [
                                 ..._bonBilder.map((bild) {
                                   final bool isPreview = _kachelAuswahl.contains(bild.path);
-                                  return SizedBox(
-                                    width: 100,
-                                    height: 100,
+                                  return Draggable<String>(
+                                    data: bild.path,
+                                    feedback: Material(
+                                      color: Colors.transparent,
+                                      child: SizedBox(
+                                        width: 80,
+                                        height: 80,
+                                        child: Image.file(File(bild.path), fit: BoxFit.cover),
+                                      ),
+                                    ),
+                                    childWhenDragging: const Opacity(
+                                      opacity: 0.4,
+                                      child: SizedBox(width: 100, height: 100),
+                                    ),
+                                    child: SizedBox(
+                                      width: 100,
+                                      height: 100,
                                     child: Stack(
                                       children: [
                                         Positioned.fill(
@@ -1601,7 +1865,8 @@ class _AddScreenState extends State<AddScreen> {
                                         ),
                                       ],
                                     ),
-                                  );
+                                  ),
+                                );
                                 }),
                                 if (_bonBilder.length < 4)
                                   InkWell(
@@ -1669,6 +1934,89 @@ class _AddScreenState extends State<AddScreen> {
         ],
       ),
       child: child,
+    );
+  }
+}
+
+class _RegionSelectorDialog extends StatefulWidget {
+  final String bildPfad;
+  const _RegionSelectorDialog({required this.bildPfad});
+
+  @override
+  State<_RegionSelectorDialog> createState() => _RegionSelectorDialogState();
+}
+
+class _RegionSelectorDialogState extends State<_RegionSelectorDialog> {
+  Offset? _start;
+  Offset? _current;
+  final GlobalKey _boxKey = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    final lang = settings.languageCode;
+    return AlertDialog(
+      title: Text(getText(lang, 'ocr_select_region')),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 320,
+        child: GestureDetector(
+          key: _boxKey,
+          onPanStart: (d) {
+            setState(() {
+              _start = d.localPosition;
+              _current = d.localPosition;
+            });
+          },
+          onPanUpdate: (d) {
+            setState(() {
+              _current = d.localPosition;
+            });
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.file(File(widget.bildPfad), fit: BoxFit.fill),
+              if (_start != null && _current != null)
+                Positioned.fromRect(
+                  rect: Rect.fromPoints(_start!, _current!),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.red, width: 2),
+                      color: Colors.red.withValues(alpha: 0.15),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(getText(lang, 'cancel')),
+        ),
+        TextButton(
+          onPressed: () {
+            if (_start == null || _current == null) {
+              Navigator.pop(context);
+              return;
+            }
+            final renderBox =
+                _boxKey.currentContext?.findRenderObject() as RenderBox?;
+            final size = renderBox?.size ?? const Size(1, 1);
+            final rect = Rect.fromPoints(_start!, _current!);
+            final normalized = Rect.fromLTWH(
+              (rect.left / size.width).clamp(0.0, 1.0),
+              (rect.top / size.height).clamp(0.0, 1.0),
+              (rect.width / size.width).clamp(0.0, 1.0),
+              (rect.height / size.height).clamp(0.0, 1.0),
+            );
+            Navigator.pop(context, normalized);
+          },
+          child: Text(getText(lang, 'ocr_apply')),
+        ),
+      ],
     );
   }
 }

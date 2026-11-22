@@ -251,6 +251,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       },
                     ),
 
+                    // 6b. Offline OCR
+                    GroupedCardItem.switchTile(
+                      switchSecondary: const Icon(Icons.document_scanner, color: Colors.indigo),
+                      title: Text(getText(lang, 'ocr_use')),
+                      subtitle: Text(getText(lang, 'ocr_desc')),
+                      value: settings.useOcr,
+                      onChanged: (bool value) {
+                        settings.setUseOcr(value);
+                      },
+                    ),
+
                     // 7. Kalender-Einstellungen
                     GroupedCardItem(
                       leading: Icon(Icons.calendar_month,
@@ -570,6 +581,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'preferred_calendar_app',
     'default_reminder_minutes',
     'notif_template', // >>> NEU
+    'use_ocr',
   ];
 
   Future<void> _importieren(

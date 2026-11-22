@@ -51,6 +51,9 @@ class SettingsProvider with ChangeNotifier {
   bool _useAmPm = false;
   String _sortOrder = 'a_z';
 
+  // --- OFFLINE OCR ---
+  bool _useOcr = true;
+
   // --- WISCHGESTEN (SWIPE ACTIONS) ---
   bool _useSwipeActions = false;
   String _swipeRightAction = 'edit';
@@ -105,6 +108,8 @@ class SettingsProvider with ChangeNotifier {
   String get currencySymbol => _currencySymbol;
   bool get useAmPm => _useAmPm;
   String get sortOrder => _sortOrder;
+
+  bool get useOcr => _useOcr;
 
   bool get useSwipeActions => _useSwipeActions;
   String get swipeRightAction => _swipeRightAction;
@@ -258,6 +263,8 @@ class SettingsProvider with ChangeNotifier {
     _currencySymbol = prefs.getString('currency_symbol') ?? '€';
     _useAmPm = prefs.getBool('use_am_pm') ?? false;
     _sortOrder = prefs.getString('sort_order') ?? 'a_z';
+
+    _useOcr = prefs.getBool('use_ocr') ?? true;
 
     _useSwipeActions = prefs.getBool('use_swipe_actions') ?? false;
     _swipeRightAction = prefs.getString('swipe_right_action') ?? 'edit';
@@ -822,6 +829,13 @@ class SettingsProvider with ChangeNotifier {
     await prefs.setString('sort_order', order);
   }
 
+  Future<void> setUseOcr(bool value) async {
+    _useOcr = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('use_ocr', value);
+  }
+
   Future<void> deleteAllData() async {
     final prefs = await SharedPreferences.getInstance();
     final bool wasUnlocked = _colorPickerUnlocked;
@@ -843,6 +857,7 @@ class SettingsProvider with ChangeNotifier {
     _currencySymbol = '€';
     _useAmPm = false;
     _sortOrder = 'a_z';
+    _useOcr = true;
     _useSwipeActions = false;
     _swipeRightAction = 'edit';
     _swipeLeftAction = 'delete';
