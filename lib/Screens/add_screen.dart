@@ -13,7 +13,8 @@ import 'package:garantiemanager/Manual/tutorial.dart';
 import 'dart:convert';
 import '../Services/calender_service.dart';
 import 'package:garantiemanager/Screens/edit_screen.dart';
-import 'package:garantiemanager/Services/ocr_service.dart';
+import 'package:garantiemanager/Services/ocr_service.dart'
+    if (dart.library.html) 'package:garantiemanager/Services/ocr_service_web.dart';
 
 class _SettingsTimeLocalizations extends DefaultMaterialLocalizations {
   final String lang;
@@ -1713,7 +1714,7 @@ class _AddScreenState extends State<AddScreen> {
                             ),
                           ],
                           const SizedBox(height: 8),
-                          if (settings.useOcr)
+                          if (!kIsWeb && settings.useOcr)
                             DragTarget<String>(
                               onWillAcceptWithDetails: (details) => true,
                               onAcceptWithDetails: (details) {

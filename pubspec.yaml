@@ -75,6 +75,7 @@ dependencies:
   package_info_plus: ^10.2.1
   flutter_screenutil: ^5.9.3
   google_mlkit_text_recognition: ^0.13.0
+  device_preview: ^1.2.0
   device_calendar:
     path: ../device_calendar
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:device_preview/device_preview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
@@ -60,11 +62,14 @@ void main() async {
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => SettingsProvider()),
-      ],
-      child: MyApp(missingFiles: missingFiles),
+    DevicePreview(
+      enabled: kIsWeb,
+      builder: (context) => MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ],
+        child: MyApp(missingFiles: missingFiles),
+      ),
     ),
   );
 }
@@ -100,8 +105,8 @@ class MyApp extends StatelessWidget {
       onGenerateTitle: (context) => getText(settings.languageCode, 'app_title'),
       debugShowCheckedModeBanner: false,
       themeMode: settings.themeMode,
-
-      locale: Locale(settings.languageCode),
+      useInheritedMediaQuery: true,
+      locale: DevicePreview.locale(context) ?? Locale(settings.languageCode),
       supportedLocales: const [
         Locale('de', ''),
         Locale('en', ''),
@@ -160,7 +165,7 @@ class MyApp extends StatelessWidget {
           ),
         );
 
-        return MediaQuery(
+        final scaledWidget = MediaQuery(
           data: scaledData,
           child: OverflowBox(
             alignment: Alignment.topLeft,
@@ -179,6 +184,7 @@ class MyApp extends StatelessWidget {
             ),
           ),
         );
+        return DevicePreview.appBuilder(context, scaledWidget);
       },
       // =====================================================
 
