@@ -156,7 +156,7 @@ packages:
   device_calendar:
     dependency: "direct main"
     description:
-      path: "../device_calendar"
+      path: device_calendar
       relative: true
     source: path
     version: "4.3.2"
