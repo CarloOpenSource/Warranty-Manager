@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Radius der Card-Ecken – muss mit dem CardTheme in main.dart übereinstimmen.
 const double _kCardRadius = 12.0;

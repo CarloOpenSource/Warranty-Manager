@@ -1,5 +1,4 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
@@ -13,6 +12,7 @@ import 'package:garantiemanager/Manual/tutorial.dart';
 import 'dart:convert';
 import '../Services/calender_service.dart';
 import 'package:garantiemanager/Screens/edit_screen.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 
 class _SettingsTimeLocalizations extends DefaultMaterialLocalizations {
   final String lang;
@@ -608,9 +608,8 @@ class _AddScreenState extends State<AddScreen> {
         return Localizations.override(
           context: context,
           locale: Locale(lang),
-          delegates: const [
+          delegates: [
             GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
           child: child!,
@@ -670,7 +669,6 @@ class _AddScreenState extends State<AddScreen> {
           locale: Locale(lang),
           delegates: [
             _SettingsTimeLocalizationsDelegate(lang),
-            GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
           child: MediaQuery(
@@ -714,9 +712,8 @@ class _AddScreenState extends State<AddScreen> {
         return Localizations.override(
           context: context,
           locale: Locale(lang),
-          delegates: const [
+          delegates: [
             GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
           child: child!,

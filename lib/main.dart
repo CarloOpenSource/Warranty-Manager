@@ -1,11 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'Screens/add_screen.dart';
 import 'Screens/detail_screen.dart';
@@ -109,11 +107,7 @@ class MyApp extends StatelessWidget {
         Locale('fr', ''),
         Locale('es', ''),
       ],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
 
       builder: (context, child) {
         final MediaQueryData data = MediaQuery.of(context);

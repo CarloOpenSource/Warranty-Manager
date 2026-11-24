@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../Services/settings_provider.dart';
-import 'grouped_card.dart';
+import '../Services/Helpers/grouped_card.dart';
 
 class GestureSettingsScreen extends StatelessWidget {
   const GestureSettingsScreen({super.key});

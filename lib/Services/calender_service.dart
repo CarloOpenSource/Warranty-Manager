@@ -4,7 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
-import 'package:flutter/material.dart' show TimeOfDay;
+import 'package:material_ui/material_ui.dart' show TimeOfDay;
 
 class CreatedEvent {
   final String eventId;
