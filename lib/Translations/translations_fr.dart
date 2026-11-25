@@ -279,6 +279,7 @@ const Map<String, String> translationsFr = {
   'curr_bif': 'Franc burundais',
   'curr_xcd': 'Dollar de la Caraïbe orientale',
   'curr_xpf': 'Franc CFP',
+  'curr_inr': 'Roupie indienne',
 
   'color_unlocked': 'Sélection des couleurs débloquée !',
   'color_settings': 'Couleurs',

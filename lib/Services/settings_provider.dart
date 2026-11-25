@@ -42,6 +42,7 @@ const List<Map<String, String>> appCurrencies = [
   {'label_key': 'curr_bif', 'symbol': 'FBu'},
   {'label_key': 'curr_xcd', 'symbol': 'EC\$'},
   {'label_key': 'curr_xpf', 'symbol': 'XPF'},
+  {'label_key': 'curr_inr', 'symbol': '₹'},
 ];
 
 class SettingsProvider with ChangeNotifier {
