@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -136,10 +137,14 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
+    if (!kIsWeb) {
+      try {
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+      } catch (_) {}
+    }
     _zoomController = TransformationController();
     _zoomController.addListener(_onZoomChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -160,12 +165,16 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
     _zoomController.removeListener(_onZoomChanged);
     _zoomController.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    if (!kIsWeb) {
+      try {
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      } catch (_) {}
+    }
     super.dispose();
   }
 

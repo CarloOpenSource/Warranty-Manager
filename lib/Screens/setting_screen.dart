@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -491,7 +492,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (docDir.existsSync()) {
         for (var entity in docDir.listSync(recursive: false)) {
           if (entity is File) {
-            final fileName = entity.path.split(Platform.pathSeparator).last;
+            final fileName = entity.path.split(kIsWeb ? '/' : (kIsWeb ? '/' : Platform.pathSeparator)).last;
             if (fileName.isNotEmpty) {
               entity.copySync('${stagingDir.path}/$fileName');
             }
@@ -833,7 +834,7 @@ gueltige.add(entry);
           final extractedDir = Directory(extractPath.path);
           for (final entity in extractedDir.listSync(recursive: true)) {
             if (entity is File && !entity.path.endsWith('prefs_backup.json')) {
-              final filename = entity.path.split(Platform.pathSeparator).last;
+              final filename = entity.path.split((kIsWeb ? '/' : Platform.pathSeparator)).last;
               if (filename.isNotEmpty) {
                 try {
                   final targetFile = File('${docDir.path}/$filename');
