@@ -15,6 +15,7 @@ const List<Map<String, String>> appCurrencies = [
   {'label_key': 'curr_aud', 'symbol': 'A\$'},
   {'label_key': 'curr_nzd', 'symbol': 'NZ\$'},
   {'label_key': 'curr_gbp', 'symbol': '£'},
+  {'label_key': 'curr_inr', 'symbol': '₹'},
   {'label_key': 'curr_mxn', 'symbol': 'MXN'},
   {'label_key': 'curr_ars', 'symbol': 'ARS'},
   {'label_key': 'curr_clp', 'symbol': 'CLP'},

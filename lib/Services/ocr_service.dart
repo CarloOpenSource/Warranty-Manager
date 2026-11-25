@@ -55,15 +55,23 @@ class OcrService {
   }
 
   /// Runs OCR on the given image path and returns the recognized text.
+  /// Tries both a preprocessed variant and the original image and keeps the
+  /// result with more recognized text, which improves robustness on receipts
+  /// with unusual lighting or skew.
   Future<String> recognizeText(String imagePath) async {
     final prepared = await prepareImage(imagePath);
-    try {
-      final inputImage = InputImage.fromFilePath(prepared);
-      final result = await _textRecognizer.processImage(inputImage);
-      return result.text;
-    } catch (_) {
-      return '';
+    String best = '';
+    for (final candidate in <String>[prepared, imagePath]) {
+      if (candidate.isEmpty) continue;
+      try {
+        final inputImage = InputImage.fromFilePath(candidate);
+        final result = await _textRecognizer.processImage(inputImage);
+        if (result.text.trim().length > best.trim().length) {
+          best = result.text;
+        }
+      } catch (_) {}
     }
+    return best;
   }
 
   /// Crops a region from [sourcePath] given normalized rect (0..1) and runs OCR.
@@ -170,18 +178,33 @@ class OcrService {
       }
     }
 
-    // Dates
+    // Dates: prefer a line that explicitly mentions a date/purchase, otherwise
+    // take the first date found (usually the purchase date on receipts).
     final dateRegex = RegExp(r'(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})');
+    String? chosenDate;
     for (final line in lines) {
+      final lower = line.toLowerCase();
+      final isDateLine = lower.contains('datum') ||
+          lower.contains('date') ||
+          lower.contains('kauf') ||
+          lower.contains('bought') ||
+          lower.contains('purchase');
       final m = dateRegex.firstMatch(line);
       if (m != null) {
         final d = m.group(1)!.padLeft(2, '0');
         final mo = m.group(2)!.padLeft(2, '0');
         var y = m.group(3)!;
         if (y.length == 2) y = '20$y';
-        result['kaufDatum'] = '$d.$mo.$y';
-        break;
+        final candidate = '$d.$mo.$y';
+        if (isDateLine) {
+          chosenDate = candidate;
+          break;
+        }
+        chosenDate ??= candidate;
       }
+    }
+    if (chosenDate != null) {
+      result['kaufDatum'] = chosenDate;
     }
 
     // Price: find decimal number
@@ -193,8 +216,18 @@ class OcrService {
       }
     }
     if (prices.isNotEmpty) {
-      // take the largest? Usually total. Take last (often total at bottom)
-      result['preis'] = prices.last;
+      // Prefer the largest value found (usually the total at the bottom of
+      // the receipt), falling back to the last one.
+      double best = 0;
+      String bestStr = prices.last;
+      for (final p in prices) {
+        final v = double.tryParse(p) ?? 0;
+        if (v >= best) {
+          best = v;
+          bestStr = p;
+        }
+      }
+      result['preis'] = bestStr;
     }
 
     // Product name: line that contains a price, text before price

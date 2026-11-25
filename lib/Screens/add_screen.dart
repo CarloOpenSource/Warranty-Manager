@@ -942,12 +942,7 @@ class _AddScreenState extends State<AddScreen> {
         errorMsg += '${getText(lang, "error_price_invalid")}\n';
       }
 
-      if (woGekauft.isEmpty) {
-        _woGekauftError = true;
-        hasError = true;
-        errorMsg += '${getText(lang, "error_store_missing")}\n';
-      }
-
+      // Store (Laden) ist optional; Hersteller ist Pflicht.
       if (hersteller.isEmpty) {
         _herstellerError = true;
         hasError = true;
@@ -1256,51 +1251,6 @@ class _AddScreenState extends State<AddScreen> {
                               const SizedBox(height: 12),
 
                               TextField(
-                                controller: _woGekauftController,
-                                textCapitalization: TextCapitalization.characters,
-                                inputFormatters: [LengthLimitingTextInputFormatter(15)],
-                                decoration: InputDecoration(
-                                  labelText: getText(lang, 'bought_at'),
-                                  prefixIcon: const Icon(Icons.store),
-                                  suffixIcon: verfuegbareLaeden.isNotEmpty
-                                      ? PopupMenuButton<String>(
-                                          icon: const Icon(Icons.arrow_drop_down, size: 24),
-                                          position: PopupMenuPosition.under,
-                                          onSelected: (String newValue) {
-                                            setState(() {
-                                              _woGekauftController.text = newValue;
-                                              _woGekauftError = false;
-                                            });
-                                          },
-                                          itemBuilder: (BuildContext context) {
-                                            return verfuegbareLaeden.map((laden) {
-                                              return PopupMenuItem<String>(
-                                                value: laden,
-                                                child: ConstrainedBox(
-                                                  constraints: const BoxConstraints(maxWidth: 150),
-                                                  child: Text(
-                                                    laden.isEmpty ? getText(lang, 'select_empty') : laden,
-                                                    overflow: TextOverflow.ellipsis,
-                                                    maxLines: 1,
-                                                  ),
-                                                ),
-                                              );
-                                            }).toList();
-                                          },
-                                        )
-                                      : null,
-                                  enabledBorder: OutlineInputBorder(
-                                      borderSide: BorderSide(color: _woGekauftError ? Colors.red : Colors.grey)),
-                                  focusedBorder: OutlineInputBorder(
-                                      borderSide: BorderSide(
-                                          color: _woGekauftError ? Colors.red : settings.appButtonColor, width: 2)),
-                                ),
-                                onChanged: (_) => setState(() => _woGekauftError = false),
-                              ),
-
-                              const SizedBox(height: 16),
-
-                              TextField(
                                 controller: _herstellerController,
                                 textCapitalization: TextCapitalization.characters,
                                 inputFormatters: [LengthLimitingTextInputFormatter(15)],
@@ -1341,6 +1291,51 @@ class _AddScreenState extends State<AddScreen> {
                                           color: _herstellerError ? Colors.red : settings.appButtonColor, width: 2)),
                                 ),
                                 onChanged: (_) => setState(() => _herstellerError = false),
+                              ),
+
+                              const SizedBox(height: 16),
+
+                              TextField(
+                                controller: _woGekauftController,
+                                textCapitalization: TextCapitalization.characters,
+                                inputFormatters: [LengthLimitingTextInputFormatter(15)],
+                                decoration: InputDecoration(
+                                  labelText: getText(lang, 'bought_at'),
+                                  prefixIcon: const Icon(Icons.store),
+                                  suffixIcon: verfuegbareLaeden.isNotEmpty
+                                      ? PopupMenuButton<String>(
+                                          icon: const Icon(Icons.arrow_drop_down, size: 24),
+                                          position: PopupMenuPosition.under,
+                                          onSelected: (String newValue) {
+                                            setState(() {
+                                              _woGekauftController.text = newValue;
+                                              _woGekauftError = false;
+                                            });
+                                          },
+                                          itemBuilder: (BuildContext context) {
+                                            return verfuegbareLaeden.map((laden) {
+                                              return PopupMenuItem<String>(
+                                                value: laden,
+                                                child: ConstrainedBox(
+                                                  constraints: const BoxConstraints(maxWidth: 150),
+                                                  child: Text(
+                                                    laden.isEmpty ? getText(lang, 'select_empty') : laden,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    maxLines: 1,
+                                                  ),
+                                                ),
+                                              );
+                                            }).toList();
+                                          },
+                                        )
+                                      : null,
+                                  enabledBorder: OutlineInputBorder(
+                                      borderSide: BorderSide(color: _woGekauftError ? Colors.red : Colors.grey)),
+                                  focusedBorder: OutlineInputBorder(
+                                      borderSide: BorderSide(
+                                          color: _woGekauftError ? Colors.red : settings.appButtonColor, width: 2)),
+                                ),
+                                onChanged: (_) => setState(() => _woGekauftError = false),
                               ),
 
                               const SizedBox(height: 16),

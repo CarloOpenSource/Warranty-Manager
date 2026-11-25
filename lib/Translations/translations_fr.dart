@@ -253,6 +253,7 @@ const Map<String, String> translationsFr = {
   'curr_aud': 'Dollar australien',
   'curr_nzd': 'Dollar néo-zélandais',
   'curr_gbp': 'Livre sterling',
+  'curr_inr': 'Roupie indienne',
   'curr_mxn': 'Peso mexicain',
   'curr_ars': 'Peso argentin',
   'curr_clp': 'Peso chilien',
