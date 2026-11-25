@@ -293,6 +293,44 @@ class CalendarService {
     return ordered;
   }
 
+  /// Sucht in den beschreibbaren Kalendern nach einem bereits vorhandenen
+  /// Termin mit gleichem Titel und gleichem Tag (Start). Wird für die Sync-
+  /// Logik verwendet, um Duplikate zu vermeiden, wenn die gespeicherte
+  /// calendarEventId verloren gegangen ist.
+  Future<CreatedEvent?> findExistingEvent({
+    required String title,
+    required DateTime expiryDate,
+    required String providerId,
+  }) async {
+    try {
+      if (!await _ensurePermission()) return null;
+      final calendars = await _retrieveWritableCalendars();
+      final dayStart = DateTime(expiryDate.year, expiryDate.month, expiryDate.day);
+      final dayEnd = dayStart.add(const Duration(days: 1));
+
+      for (final cal in calendars) {
+        if (cal.id == null) continue;
+        try {
+          final res = await _plugin.retrieveEvents(
+            cal.id!,
+            RetrieveEventsParams(
+              startDate: dayStart,
+              endDate: dayEnd,
+            ),
+          );
+          final events = res.data ?? const <Event>[];
+          for (final ev in events) {
+            if (ev.eventId == null) continue;
+            if ((ev.title ?? '').trim() == title.trim()) {
+              return CreatedEvent(ev.eventId!, cal.id!);
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<CreatedEvent?> addEvent({
     required String title,
     required String description,

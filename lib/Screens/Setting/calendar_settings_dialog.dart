@@ -821,10 +821,33 @@ class _CalendarSettingsContentState extends State<_CalendarSettingsContent> {
           } catch (_) {}
         }
 
-        if (existingId != null && existingId.isNotEmpty) {
+        // Stabile ID pro Eintrag: zuerst die gespeicherte calendarEventId
+        // verwenden; falls leer/stale, nach einem bereits vorhandenen Termin
+        // mit gleichem Titel/Tag suchen, um Duplikate zu vermeiden.
+        String? resolvedId = (existingId != null && existingId.isNotEmpty)
+            ? existingId
+            : null;
+        String? resolvedCalId = (existingCalId != null && existingCalId.isNotEmpty)
+            ? existingCalId
+            : null;
+
+        if (resolvedId == null) {
+          final found = await service.findExistingEvent(
+            title: name,
+            expiryDate: expiry,
+            providerId: providerId,
+          );
+          if (found != null) {
+            resolvedId = found.eventId;
+            resolvedCalId = found.calendarId;
+          }
+        }
+
+        bool didSync = false;
+        if (resolvedId != null) {
           final updated = await service.updateEvent(
-            eventId: existingId,
-            calendarId: existingCalId,
+            eventId: resolvedId,
+            calendarId: resolvedCalId,
             providerId: providerId,
             title: name,
             description: description,
@@ -836,24 +859,34 @@ class _CalendarSettingsContentState extends State<_CalendarSettingsContent> {
             entry['calendarEventId'] = updated.eventId;
             entry['calendarId'] = updated.calendarId;
             synced++;
-            continue;
+            didSync = true;
+          } else {
+            // Update fehlgeschlagen (z. B. Termin extern gelöscht): ID
+            // verwerfen, damit unten neu angelegt wird.
+            resolvedId = null;
+            resolvedCalId = null;
+            entry.remove('calendarEventId');
+            entry.remove('calendarId');
           }
         }
 
-        final created = await service.addEvent(
-          title: name,
-          description: description,
-          expiryDate: expiry,
-          startTime: startTime,
-          providerId: providerId,
-          reminderMinutes: settings.defaultReminderMinutes,
-        );
-        if (created != null) {
-          entry['calendarEventId'] = created.eventId;
-          entry['calendarId'] = created.calendarId;
-          synced++;
-        } else {
-          failed++;
+        if (!didSync) {
+          // Nur anlegen, wenn wirklich kein passender Termin existiert.
+          final created = await service.addEvent(
+            title: name,
+            description: description,
+            expiryDate: expiry,
+            startTime: startTime,
+            providerId: providerId,
+            reminderMinutes: settings.defaultReminderMinutes,
+          );
+          if (created != null) {
+            entry['calendarEventId'] = created.eventId;
+            entry['calendarId'] = created.calendarId;
+            synced++;
+          } else {
+            failed++;
+          }
         }
       }
 
