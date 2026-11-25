@@ -164,10 +164,11 @@ packages:
   device_calendar:
     dependency: "direct main"
     description:
-      path: "../device_calendar"
-      relative: true
-    source: path
-    version: "4.3.2"
+      name: device_calendar
+      sha256: e5170a5a5a2027135705b099fe5f9b0dce415e27c94997b34e64f28de54e4226
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.9.0"
   equatable:
     dependency: transitive
     description:
@@ -909,10 +910,10 @@ packages:
     dependency: transitive
     description:
       name: sprintf
-      sha256: "1fc9ffe69d4df602376b52949af107d8f5703b77cda567c4d7d86a0693120f23"
+      sha256: ec76d38910b6f1c854ce1353c62d37e7ef82b53dc5ab048c25400d35970776d1
       url: "https://pub.dev"
     source: hosted
-    version: "7.0.0"
+    version: "6.0.2"
   stack_trace:
     dependency: transitive
     description:

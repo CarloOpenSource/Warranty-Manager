@@ -74,7 +74,7 @@ dependencies:
   url_launcher: ^6.3.2
   package_info_plus: ^10.2.1
   flutter_screenutil: ^5.9.3
-  device_calendar: ^7.0.0
+  device_calendar: ^3.9.0
   material_ui: ^1.11.1
   cupertino_ui: ^1.1.7
 
