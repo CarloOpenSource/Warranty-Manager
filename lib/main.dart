@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart';
+import 'package:device_preview/device_preview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
-import 'package:device_preview/device_preview.dart';
 
 import 'Screens/add_screen.dart';
 import 'Screens/detail_screen.dart';
@@ -28,59 +28,41 @@ void notificationTapBackground(NotificationResponse notificationResponse) {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Auf Web (und anderen nicht-mobilen Plattformen) sind Notifications und
-  // System-Chrome-Aufrufe nicht verfügbar bzw. verhalten sich anders.
-  // Deshalb nur auf nativen (Android/iOS) Plattformen ausführen, damit die
-  // Logik der Android-App unverändert bleibt und die Web-Version nicht
-  // beim Start abstürzt.
-  if (!kIsWeb) {
-    try {
-      await NotificationService().init();
-    } catch (_) {}
-  }
+  await NotificationService().init();
 
   final List<String> missingFiles = await StartupCheck.findMissingFiles();
 
-  if (!kIsWeb) {
-    // ── Orientierungen ────────────────────────────────────────────────────
-    // Erlaubt:
-    //   • portraitUp      → Handy aufrecht (Standard)
-    //   • landscapeLeft   → Handy nach links gedreht (90°)
-    //   • landscapeRight  → Handy nach rechts gedreht (90°, andere Seite)
-    //
-    // NICHT erlaubt:
-    //   • portraitDown    → Handy auf den Kopf gestellt (180°)
-    //
-    // Grund: portraitDown verursacht auf vielen Geräten (Samsung OneUI,
-    // MIUI/HyperOS, Pixel) Probleme mit der System-Navigationsleiste
-    // (Nav-Bar nicht erreichbar, Status-Bar verschwindet, Touch-Geste wird
-    // als Rotations-Geste interpretiert). Beide Landscape-Richtungen sind
-    // unproblematisch, weil die System-Leisten an der jeweiligen
-    // Bildschirmkante bleiben.
-    try {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    } catch (_) {}
+  // ── Orientierungen ────────────────────────────────────────────────────
+  // Erlaubt:
+  //   • portraitUp      → Handy aufrecht (Standard)
+  //   • landscapeLeft   → Handy nach links gedreht (90°)
+  //   • landscapeRight  → Handy nach rechts gedreht (90°, andere Seite)
+  //
+  // NICHT erlaubt:
+  //   • portraitDown    → Handy auf den Kopf gestellt (180°)
+  //
+  // Grund: portraitDown verursacht auf vielen Geräten (Samsung OneUI,
+  // MIUI/HyperOS, Pixel) Probleme mit der System-Navigationsleiste
+  // (Nav-Bar nicht erreichbar, Status-Bar verschwindet, Touch-Geste wird
+  // als Rotations-Geste interpretiert). Beide Landscape-Richtungen sind
+  // unproblematisch, weil die System-Leisten an der jeweiligen
+  // Bildschirmkante bleiben.
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
 
-    // ── System-UI-Modus ───────────────────────────────────────────────────
-    // edgeToEdge: App zeichnet hinter Status- und Nav-Bar, das OS blendet
-    // die Leisten mit Transparenz ein. SafeArea sorgt dafür, dass Inhalte
-    // nicht darunter liegen. Verhindert, dass die System-Bars nach einer
-    // Rotation dauerhaft verschwinden (Immersion-Modus hängt fest).
-    try {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    } catch (_) {}
-  }
+  // ── System-UI-Modus ───────────────────────────────────────────────────
+  // edgeToEdge: App zeichnet hinter Status- und Nav-Bar, das OS blendet
+  // die Leisten mit Transparenz ein. SafeArea sorgt dafür, dass Inhalte
+  // nicht darunter liegen. Verhindert, dass die System-Bars nach einer
+  // Rotation dauerhaft verschwinden (Immersion-Modus hängt fest).
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  // device_preview: In Release deaktiviert (Performance), in Debug/Profile
-  // aktiv – besonders nützlich für die Web-Vorschau mobiler Geräte.
   runApp(
     DevicePreview(
-      enabled: !kReleaseMode,
+      enabled: kIsWeb,
       builder: (context) => MultiProvider(
         providers: [
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
@@ -122,10 +104,6 @@ class MyApp extends StatelessWidget {
       onGenerateTitle: (context) => getText(settings.languageCode, 'app_title'),
       debugShowCheckedModeBanner: false,
       themeMode: settings.themeMode,
-
-      // device_preview-Integration: nutzt die durch DevicePreview injizierte
-      // MediaQuery, damit Vorschau-Geräte korrekt skaliert werden.
-      useInheritedMediaQuery: true,
       locale: DevicePreview.locale(context) ?? Locale(settings.languageCode),
       supportedLocales: const [
         Locale('de', ''),
@@ -181,28 +159,26 @@ class MyApp extends StatelessWidget {
           ),
         );
 
-        return DevicePreview.appBuilder(
-          context,
-          MediaQuery(
-            data: scaledData,
-            child: OverflowBox(
+        final scaledWidget = MediaQuery(
+          data: scaledData,
+          child: OverflowBox(
+            alignment: Alignment.topLeft,
+            minWidth: designSize.width,
+            maxWidth: designSize.width,
+            minHeight: designSize.height,
+            maxHeight: designSize.height,
+            child: Transform(
               alignment: Alignment.topLeft,
-              minWidth: designSize.width,
-              maxWidth: designSize.width,
-              minHeight: designSize.height,
-              maxHeight: designSize.height,
-              child: Transform(
-                alignment: Alignment.topLeft,
-                transform: Matrix4.diagonal3Values(scaleX, scaleY, 1),
-                child: SizedBox(
-                  width: designSize.width,
-                  height: designSize.height,
-                  child: child!,
-                ),
+              transform: Matrix4.diagonal3Values(scaleX, scaleY, 1),
+              child: SizedBox(
+                width: designSize.width,
+                height: designSize.height,
+                child: child!,
               ),
             ),
           ),
         );
+        return DevicePreview.appBuilder(context, scaledWidget);
       },
       // =====================================================
 
@@ -382,19 +358,11 @@ class _HomeScreenState extends State<HomeScreen> {
         await _fordereBenachrichtigungDirektAn();
         if (!mounted) return;
 
+        final String osLang = Platform.localeName.split('_')[0].toLowerCase();
         final settings = Provider.of<SettingsProvider>(context, listen: false);
 
-        if (!kIsWeb) {
-          try {
-            final String osLang = Platform.localeName.split('_')[0].toLowerCase();
-            if (['de', 'en', 'fr', 'es'].contains(osLang)) {
-              await settings.setLanguage(osLang);
-            } else {
-              await _zeigeSprachAuswahl();
-            }
-          } catch (_) {
-            await _zeigeSprachAuswahl();
-          }
+        if (['de', 'en', 'fr', 'es'].contains(osLang)) {
+          await settings.setLanguage(osLang);
         } else {
           await _zeigeSprachAuswahl();
         }
@@ -409,7 +377,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fordereBenachrichtigungDirektAn() async {
-    if (!kIsWeb && Platform.isAndroid) {
+    if (Platform.isAndroid) {
       final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
           FlutterLocalNotificationsPlugin();
       await flutterLocalNotificationsPlugin
