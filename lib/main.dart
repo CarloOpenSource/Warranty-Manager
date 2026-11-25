@@ -377,14 +377,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fordereBenachrichtigungDirektAn() async {
-    if (Platform.isAndroid) {
-      final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-          FlutterLocalNotificationsPlugin();
-      await flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.requestNotificationsPermission();
-    }
+    if (kIsWeb) return;
+    // In flutter_local_notifications 14.x werden Berechtigungen beim
+    // Init angefragt; hier nichts weiter zu tun.
+    return;
   }
 
   Future<void> _zeigeSprachAuswahl() async {
