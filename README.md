@@ -5,6 +5,9 @@ A modern, privacy-focused Flutter application designed to help you organize and 
 [![License](https://img.shields.io/badge/License-yellow.svg)](https://github.com/CarloOpenSource/Warranty-Manager/blob/main/LICENSE) 
 [![Latest Stable Release](https://img.shields.io/github/v/release/CarloOpenSource/Warranty-Manager?label=Stable)](https://github.com/CarloOpenSource/Warranty-Manager/releases/latest)
 
+## Try now the Live Demo:
+https://carloopensource.github.io/Warranty-Manager/
+
 ## Features
 - **Offline-First:** All your data stays strictly on your local device. No account or cloud login required.
 - **Privacy-Focused:** No tracking, no ads, no external servers.
