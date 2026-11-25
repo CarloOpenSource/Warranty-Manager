@@ -2,7 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 import '../Services/notification_service.dart';
 import '../Services/settings_provider.dart';
-import 'calendar_settings_dialog.dart';
+import '../Screens/Setting/calendar_settings_dialog.dart';
 import 'package:garantiemanager/Manual/tutorial.dart';
 import 'detail_screen.dart';
 import '../Services/calender_service.dart';   

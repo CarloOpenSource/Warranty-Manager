@@ -11,11 +11,11 @@ import 'dart:typed_data';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../Services/calender_service.dart';
-import 'calendar_settings_dialog.dart';
-import 'gesture_settings_screen.dart';
-import 'notification_settings_screen.dart'; 
+import '../Screens/Setting/calendar_settings_dialog.dart';
+import 'Setting/gesture_settings_screen.dart';
+import 'Setting/notification_settings_screen.dart'; 
 import '../Services/settings_provider.dart';
-import 'color_settings_screen.dart';
+import 'Setting/color_settings_screen.dart';
 import '../Services/Helpers/grouped_card.dart';
 
 class SettingsScreen extends StatefulWidget {

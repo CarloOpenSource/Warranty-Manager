@@ -1,7 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
-import '../Services/settings_provider.dart';
+import '../../Services/settings_provider.dart';
 
 enum _ColorTarget { accent, button }
 
