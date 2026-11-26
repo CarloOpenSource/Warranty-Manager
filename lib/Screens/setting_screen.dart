@@ -11,11 +11,12 @@ import 'package:archive/archive_io.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../Services/calender_service.dart';
-import 'calendar_settings_dialog.dart';
-import 'gesture_settings_screen.dart';
-import 'notification_settings_screen.dart'; 
+import 'Setting/calendar_settings_dialog.dart';
+import 'Setting/gesture_settings_screen.dart';
+import 'currency_selection_screen.dart';
+import 'Setting/notification_settings_screen.dart'; 
 import '../Services/settings_provider.dart';
-import 'color_settings_screen.dart';
+import 'Setting/color_settings_screen.dart';
 import '../Services/Helpers/grouped_card.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -231,7 +232,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: const TextStyle(
                             fontWeight: FontWeight.bold, fontSize: 16),
                       ),
-                      onTap: () => _zeigeWaehrungsAuswahl(context, settings),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const CurrencySelectionScreen(),
+                        ),
+                      ),
                     ),
 
                     // 6. Wischgesten
@@ -1174,65 +1180,6 @@ gueltige.add(entry);
               ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  void _zeigeWaehrungsAuswahl(
-      BuildContext context, SettingsProvider settings) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.6,
-          minChildSize: 0.4,
-          maxChildSize: 0.9,
-          builder: (context, scrollController) {
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Text(
-                    getText(settings.languageCode, 'currency'),
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: ListView.builder(
-                    controller: scrollController,
-                    itemCount: appCurrencies.length,
-                    itemBuilder: (context, index) {
-                      final item = appCurrencies[index];
-                      final isSelected =
-                          settings.currencySymbol == item['symbol'];
-
-                      return ListTile(
-                        title: Text(
-                            '${getText(settings.languageCode, item['label_key']!)} (${item['symbol']})'),
-                        trailing: isSelected
-                            ? Icon(Icons.check,
-                                color: settings.appButtonColor)
-                            : Text(item['symbol']!,
-                                style: const TextStyle(color: Colors.grey)),
-                        onTap: () {
-                          settings.setCurrency(item['symbol']!);
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            );
-          },
         );
       },
     );

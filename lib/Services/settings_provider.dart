@@ -49,6 +49,7 @@ class SettingsProvider with ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   String _languageCode = 'de';
   String _currencySymbol = '€';
+  List<String> _selectedCurrencies = <String>[];
   bool _useAmPm = false;
   String _sortOrder = 'a_z';
 
@@ -107,6 +108,7 @@ class SettingsProvider with ChangeNotifier {
   ThemeMode get themeMode => _themeMode;
   String get languageCode => _languageCode;
   String get currencySymbol => _currencySymbol;
+  List<String> get selectedCurrencies => _selectedCurrencies;
   bool get useAmPm => _useAmPm;
   String get sortOrder => _sortOrder;
 
@@ -262,6 +264,7 @@ class SettingsProvider with ChangeNotifier {
 
     _languageCode = prefs.getString('app_language') ?? prefs.getString('language_code') ?? 'de';
     _currencySymbol = prefs.getString('currency_symbol') ?? '€';
+    _selectedCurrencies = prefs.getStringList('selected_currencies') ?? <String>[];
     _useAmPm = prefs.getBool('use_am_pm') ?? false;
     _sortOrder = prefs.getString('sort_order') ?? 'a_z';
 
@@ -816,6 +819,20 @@ class SettingsProvider with ChangeNotifier {
     await prefs.setString('currency_symbol', symbol);
   }
 
+  Future<void> setSelectedCurrencies(List<String> symbols) async {
+    // Max. 10 Währungen, Duplikate entfernen. Die Standard-Währung ist
+    // immer enthalten (nimmt bei Bedarf einen Platz ein).
+    final set = symbols.toSet();
+    if (!set.contains(_currencySymbol)) {
+      set.add(_currencySymbol);
+    }
+    final cleaned = set.take(10).toList();
+    _selectedCurrencies = cleaned;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('selected_currencies', cleaned);
+  }
+
   Future<void> setUseAmPm(bool value) async {
     _useAmPm = value;
     notifyListeners();
@@ -856,6 +873,7 @@ class SettingsProvider with ChangeNotifier {
     _themeMode = ThemeMode.system;
     _languageCode = 'de';
     _currencySymbol = '€';
+    _selectedCurrencies = <String>[];
     _useAmPm = false;
     _sortOrder = 'a_z';
     _useOcr = true;

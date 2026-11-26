@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../Services/Helpers/notification_template_helper.dart';
-import '../Services/settings_provider.dart';
+import '../../Services/Helpers/notification_template_helper.dart';
+import '../../Services/settings_provider.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});

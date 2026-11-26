@@ -7,8 +7,8 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../Services/calender_service.dart';
-import '../Services/settings_provider.dart';
+import '../../Services/calender_service.dart';
+import '../../Services/settings_provider.dart';
 
 Future<void> showCalendarSettingsDialog(BuildContext context) async {
   await showDialog<void>(

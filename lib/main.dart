@@ -381,6 +381,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (!mounted) return;
         await _zeigeWaehrungsAuswahlStart();
+        if (!mounted) return;
+        await _zeigeWaehrungsAuswahlMultiStart();
 
         await prefs.setBool('is_first_start', false);
         _starteTutorialKomplett();
@@ -483,6 +485,73 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
           ),
+        );
+      },
+    );
+  }
+
+  Future<void> _zeigeWaehrungsAuswahlMultiStart() async {
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    final lang = settings.languageCode;
+    final selected = <String>[settings.currencySymbol];
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setState) {
+            return AlertDialog(
+              title: Text(getText(lang, 'selected_currencies'),
+                  textAlign: TextAlign.center),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 300,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: appCurrencies.length,
+                  itemBuilder: (context, index) {
+                    final item = appCurrencies[index];
+                    final symbol = item['symbol']!;
+                    final isStandard = symbol == settings.currencySymbol;
+                    final isSelected = selected.contains(symbol);
+                    return CheckboxListTile(
+                      title: Text(
+                          '${getText(lang, item['label_key']!)} ($symbol)'),
+                      value: isSelected || isStandard,
+                      onChanged: isStandard
+                          ? null
+                          : (val) {
+                              setState(() {
+                                if (val == true) {
+                                  if (selected.length < 10) {
+                                    selected.add(symbol);
+                                  }
+                                } else {
+                                  selected.remove(symbol);
+                                }
+                              });
+                            },
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () async {
+                    if (!selected.contains(settings.currencySymbol)) {
+                      selected.add(settings.currencySymbol);
+                    }
+                    await settings.setSelectedCurrencies(selected);
+                    if (dialogContext.mounted) {
+                      Navigator.of(dialogContext).pop();
+                    }
+                  },
+                  child: Text(getText(lang, 'ok')),
+                ),
+              ],
+            );
+          },
         );
       },
     );

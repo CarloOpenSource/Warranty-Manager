@@ -13,7 +13,7 @@ import 'package:garantiemanager/Manual/tutorial.dart';
 import 'dart:convert';
 import '../Services/calender_service.dart';
 import 'package:garantiemanager/Screens/edit_screen.dart';
-import 'package:garantiemanager/Services/ocr_service.dart'
+import 'package:garantiemanager/Services/OCR/ocr_service.dart'
     if (dart.library.html) 'package:garantiemanager/Services/ocr_service_web.dart';
 
 class _SettingsTimeLocalizations extends DefaultMaterialLocalizations {
@@ -1374,7 +1374,13 @@ class _AddScreenState extends State<AddScreen> {
                                       setState(() => _selectedWaehrung = newValue);
                                     },
                                     itemBuilder: (BuildContext context) {
-                                      return appCurrencies.map((c) {
+                                      final selected = settings.selectedCurrencies;
+                                       final list = selected.isEmpty
+                                           ? appCurrencies
+                                           : appCurrencies
+                                               .where((c) => selected.contains(c['symbol']))
+                                               .toList();
+                                       return list.map((c) {
                                         return PopupMenuItem<String>(
                                           value: c['symbol'],
                                           child: Text('${getText(lang, c['label_key']!)} (${c['symbol']})'),
