@@ -1347,7 +1347,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
                           elevation: 4,
                           borderRadius: BorderRadius.circular(24),
                           child: InkWell(
-                            borderRadius: BorderRadius.circular(24),
                             onTap: _isSaving ? null : _toggleCropMode,
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
@@ -1704,7 +1703,6 @@ class _EditScreenState extends State<EditScreen> with WidgetsBindingObserver {
         : Colors.grey.shade500;
     return InkWell(
       onTap: active ? onTap : null,
-      borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
         child: Column(mainAxisSize: MainAxisSize.min, children: [

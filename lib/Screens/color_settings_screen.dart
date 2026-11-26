@@ -244,7 +244,7 @@ class ColorSettingsScreen extends StatelessWidget {
           children: [
             InkWell(
               onTap: onTap,
-              borderRadius: BorderRadius.circular(24),
+              customBorder: const CircleBorder(),
               child: Container(
                 width: 48,
                 height: 48,

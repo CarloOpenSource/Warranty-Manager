@@ -121,6 +121,7 @@ class GroupedCardItem {
     return Material(
       type: MaterialType.transparency,
       borderRadius: radius,
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         borderRadius: radius,
         onTap: onTap,

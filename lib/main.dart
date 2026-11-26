@@ -194,6 +194,10 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.blue,
           scaffoldBackgroundColor: const Color(0xFFF4F6F9),
           cardColor: Colors.white,
+          // ── Ripple-Effekt: dezenter, theme-freundlicher (kein weißer Flash
+          // im Dark Mode) ────────────────────────────────────────────────────
+          splashColor: Colors.grey.withValues(alpha: 0.18),
+          highlightColor: Colors.grey.withValues(alpha: 0.10),
           // ── Ripple-Effekt: weich, abgerundet, passt sich der Form an ────
           // InkSparkle ist der moderne Ripple (Material 3), der sich an die
           // clipBehavior der umgebenden Card/Container anpasst.
@@ -221,6 +225,8 @@ class MyApp extends StatelessWidget {
           scaffoldBackgroundColor: const Color(0xFF121212),
           cardColor: const Color(0xFF1E1E1E),
           // ── identisch wie Light-Theme ────────────────────────────────────
+          splashColor: Colors.grey.withValues(alpha: 0.18),
+          highlightColor: Colors.grey.withValues(alpha: 0.10),
           splashFactory: InkSparkle.splashFactory,
           cardTheme: const CardThemeData(
             clipBehavior: Clip.antiAlias,

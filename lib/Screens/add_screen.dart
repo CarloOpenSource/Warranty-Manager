@@ -558,7 +558,17 @@ class _AddScreenState extends State<AddScreen> {
           candidates.any((c) => (c['name'] ?? '').isNotEmpty)) {
         gewaehlt = await _waehleKandidat(lang, candidates);
         // use parsed full if nothing selected
-        gewaehlt ??= OcrService.parseFields(text);
+        if (gewaehlt == null) {
+           gewaehlt = OcrService.parseFields(text);
+         } else {
+           final parsedFields = OcrService.parseFields(text);
+           if ((gewaehlt['name'] ?? '').isEmpty) gewaehlt['name'] = parsedFields['name'] ?? '';
+           if ((gewaehlt['preis'] ?? '').isEmpty) gewaehlt['preis'] = parsedFields['preis'] ?? '';
+           if ((gewaehlt['woGekauft'] ?? '').isEmpty) gewaehlt['woGekauft'] = parsedFields['woGekauft'] ?? '';
+           if ((gewaehlt['hersteller'] ?? '').isEmpty) gewaehlt['hersteller'] = parsedFields['hersteller'] ?? '';
+           if ((gewaehlt['kaufDatum'] ?? '').isEmpty) gewaehlt['kaufDatum'] = parsedFields['kaufDatum'] ?? '';
+           if ((gewaehlt['kategorie'] ?? '').isEmpty) gewaehlt['kategorie'] = parsedFields['kategorie'] ?? '';
+         }
       } else {
         gewaehlt = OcrService.parseFields(text);
       }
@@ -1392,7 +1402,10 @@ class _AddScreenState extends State<AddScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   InkWell(
-                                    onTap: _kaufDatumAuswaehlen,
+                                    borderRadius: BorderRadius.circular(4),
+                                     splashColor: Colors.grey.withValues(alpha: 0.18),
+                                     highlightColor: Colors.grey.withValues(alpha: 0.10),
+                                     onTap: _kaufDatumAuswaehlen,
                                     child: Container(
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
@@ -1579,7 +1592,10 @@ class _AddScreenState extends State<AddScreen> {
                               children: [
                                 Expanded(
                                   child: InkWell(
-                                    onTap: _erinnerungsDatumAuswaehlen,
+                                    borderRadius: BorderRadius.circular(8),
+                                     splashColor: Colors.grey.withValues(alpha: 0.18),
+                                     highlightColor: Colors.grey.withValues(alpha: 0.10),
+                                     onTap: _erinnerungsDatumAuswaehlen,
                                     child: Container(
                                       padding:
                                           const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
@@ -1603,7 +1619,10 @@ class _AddScreenState extends State<AddScreen> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: InkWell(
-                                    onTap: _erinnerungsZeitAuswaehlen,
+                                    borderRadius: BorderRadius.circular(8),
+                                     splashColor: Colors.grey.withValues(alpha: 0.18),
+                                     highlightColor: Colors.grey.withValues(alpha: 0.10),
+                                     onTap: _erinnerungsZeitAuswaehlen,
                                     child: Container(
                                       padding:
                                           const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
@@ -1866,7 +1885,10 @@ class _AddScreenState extends State<AddScreen> {
                                 }),
                                 if (_bonBilder.length < 4)
                                   InkWell(
-                                    onTap: () => _zeigeFotoOptionen(lang),
+                                    borderRadius: BorderRadius.circular(8),
+                                     splashColor: Colors.grey.withValues(alpha: 0.18),
+                                     highlightColor: Colors.grey.withValues(alpha: 0.10),
+                                     onTap: () => _zeigeFotoOptionen(lang),
                                     child: Container(
                                       width: 60,
                                       height: 60,
