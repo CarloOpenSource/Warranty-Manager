@@ -14,7 +14,7 @@ import 'dart:convert';
 import '../Services/calender_service.dart';
 import 'package:garantiemanager/Screens/edit_screen.dart';
 import 'package:garantiemanager/Services/OCR/ocr_service.dart'
-    if (dart.library.html) 'package:garantiemanager/Services/ocr_service_web.dart';
+    if (dart.library.html) 'package:garantiemanager/Services/OCR/ocr_service_web.dart';
 
 class _SettingsTimeLocalizations extends DefaultMaterialLocalizations {
   final String lang;

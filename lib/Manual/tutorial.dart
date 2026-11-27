@@ -261,7 +261,7 @@ class TutorialHelper {
                       textAlign: TextAlign.center,
                       style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     Text(
                       getText(lang, 'tut_search_desc'),
                       textAlign: TextAlign.center,
@@ -288,7 +288,7 @@ class TutorialHelper {
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   Text(
                     getText(lang, 'tut_add_desc'),
                     textAlign: TextAlign.center,
@@ -379,6 +379,7 @@ class TutorialHelper {
         contents: [
           TargetContent(
             align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
             builder: (context, controller) => Text(
               getText(lang, 'tut_name_desc'),
               style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -394,6 +395,7 @@ class TutorialHelper {
         contents: [
           TargetContent(
             align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
             builder: (context, controller) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -414,11 +416,12 @@ class TutorialHelper {
         contents: [
           TargetContent(
             align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
             builder: (context, controller) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  getText(lang, 'tut_kauf_garantie_desc'),
+                  getText(lang, 'tut_garantie_desc'),
                   style: const TextStyle(color: Colors.white, fontSize: 16),
                 ),
               ],
@@ -434,6 +437,7 @@ class TutorialHelper {
         contents: [
           TargetContent(
             align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
             builder: (context, controller) => Text(
               getText(lang, 'tut_timer_desc'),
               style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -552,6 +556,7 @@ class TutorialHelper {
         contents: [
           TargetContent(
             align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
             builder: (context, controller) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -559,7 +564,7 @@ class TutorialHelper {
                   getText(lang, 'tut_click_details_title'),
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Text(
                   getText(lang, 'tut_click_details_desc'),
                   style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -635,6 +640,7 @@ class TutorialHelper {
               contents: [
                 TargetContent(
                   align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
                   builder: (context, controller) => Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -642,7 +648,7 @@ class TutorialHelper {
                         getText(lang, 'tut_detail_title'),
                         style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Text(
                         getText(lang, 'tut_detail_info_desc'),
                         style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -663,6 +669,7 @@ class TutorialHelper {
             contents: [
               TargetContent(
                 align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
                 builder: (context, controller) => Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -670,7 +677,7 @@ class TutorialHelper {
                       getText(lang, 'tut_download_title'),
                       style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     Text(
                       getText(lang, 'tut_download_desc'),
                       style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -687,6 +694,7 @@ class TutorialHelper {
             contents: [
               TargetContent(
                 align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
                 builder: (context, controller) => Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -694,7 +702,7 @@ class TutorialHelper {
                       getText(lang, 'tut_print_title'),
                       style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     Text(
                       getText(lang, 'tut_print_desc'),
                       style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -715,6 +723,7 @@ class TutorialHelper {
               contents: [
                 TargetContent(
                   align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
                   builder: (context, controller) => Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -722,7 +731,7 @@ class TutorialHelper {
                         getText(lang, 'tut_back_title'),
                         style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Text(
                         getText(lang, 'tut_back_desc'),
                         style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -805,6 +814,7 @@ class TutorialHelper {
         contents: [
           TargetContent(
             align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
             builder: (context, controller) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -812,7 +822,7 @@ class TutorialHelper {
                   getText(lang, 'tut_edit_title'),
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Text(
                   getText(lang, 'tut_edit_desc'),
                   style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -829,6 +839,7 @@ class TutorialHelper {
         contents: [
           TargetContent(
             align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
             builder: (context, controller) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -836,7 +847,7 @@ class TutorialHelper {
                   getText(lang, 'tut_del_title'),
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Text(
                   getText(lang, 'tut_del_desc'),
                   style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -860,7 +871,7 @@ class TutorialHelper {
                   getText(lang, 'tut_bell_title'),
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Text(
                   getText(lang, 'tut_bell_desc'),
                   style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -1045,6 +1056,7 @@ class TutorialHelper {
           contents: [
             TargetContent(
               align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
               builder: (context, controller) => Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1056,7 +1068,7 @@ class TutorialHelper {
                       fontSize: 20,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   Text(
                     step.desc,
                     style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -1144,7 +1156,7 @@ class TutorialHelper {
                   getText(lang, 'tut_set_title'),
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Text(
                   getText(lang, 'tut_set_desc'),
                   style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -1162,6 +1174,7 @@ class TutorialHelper {
         contents: [
           TargetContent(
             align: ContentAlign.bottom,
+            padding: const EdgeInsets.all(8),
             builder: (context, controller) => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1169,7 +1182,7 @@ class TutorialHelper {
                   getText(lang, 'tut_set_end_title'), 
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 20),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Text(
                   getText(lang, 'tut_set_end_desc'), 
                   style: const TextStyle(color: Colors.white, fontSize: 16),
